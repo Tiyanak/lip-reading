@@ -1,0 +1,4 @@
+datasets/
+tfrecords/
+saved_session/
+summary/

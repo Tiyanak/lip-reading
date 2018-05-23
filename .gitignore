@@ -1,0 +1,8 @@
+.idea/
+__pycache__**
+datasets/
+tfrecords/
+saved_session/
+summary/
+checkpoint/
+log/

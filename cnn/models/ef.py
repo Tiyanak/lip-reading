@@ -39,13 +39,13 @@ class EF:
         dataset_test = tf.placeholder_with_default('test', [], name='dataset_test')
 
         if dataset_val.__eq__(self.dataset_type):
-            self.X = self.dataset.valid_images
+            self.X = tf.cast(self.dataset.valid_images, dtype=tf.float32)
             self.Yoh = layers.toOneHot(self.dataset.valid_labels, self.dataset.num_classes)
         elif dataset_test.__eq__(self.dataset_type):
-            self.X = self.dataset.test_images
+            self.X = tf.cast(self.dataset.test_images, dtype=tf.float32)
             self.Yoh = layers.toOneHot(self.dataset.test_labels, self.dataset.num_classes)
         else:
-            self.X = self.dataset.train_images
+            self.X = tf.cast(self.dataset.train_images, dtype=tf.float32)
             self.Yoh = layers.toOneHot(self.dataset.train_labels, self.dataset.num_classes)
 
         net = self.X
@@ -87,11 +87,12 @@ class EF:
         self.logits = net
         self.preds = layers.softmax(self.logits)
 
-        self.loss = layers.reduce_mean(layers.softmax_cross_entropy(logits=self.logits, labels=self.Yoh))
+        self.regularization_loss = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
+        self.loss = layers.reduce_mean(layers.softmax_cross_entropy(logits=self.logits, labels=self.Yoh)) + tf.reduce_sum(self.regularization_loss) * self.regularizer_scale
 
         self.learning_rate = layers.decayLearningRate(self.learning_rate, self.global_step, self.decay_steps, self.decay_rate)
 
-        self.accuracy, self.precision, self.recall = self.createSummaries(self.Yoh, self.preds, self.loss, self.learning_rate)
+        self.accuracy, self.precision, self.recall = self.createSummaries(self.Yoh, self.preds, self.loss, self.learning_rate, self.regularization_loss)
 
         self.opt = layers.adam(self.learning_rate)
         self.train_op = self.opt.minimize(self.loss, global_step=self.global_step)
@@ -155,7 +156,7 @@ class EF:
         self.plot_data['valid_rec'] += [valid_rec]
         self.plot_data['lr'] += [lr]
 
-        util.plot_training_progress(self.plot_data)
+        util.plot_training_progress(self.plot_data, self.dataset.name, self.name)
 
         self.test()
 
@@ -252,7 +253,7 @@ class EF:
         self.checkpoint_dir = config.config['checkpoint_root_dir'] # direktorij gdje se nalazi checkpoint
         self.summary_dir = config.config['summary_root_dir']
 
-    def createSummaries(self, labelsOH, predsOH, loss, learning_rate):
+    def createSummaries(self, labelsOH, predsOH, loss, learning_rate, regularization_loss):
 
         labels = layers.onehot_to_class(labelsOH)
         preds = layers.onehot_to_class(predsOH)
@@ -264,6 +265,7 @@ class EF:
         tf.summary.scalar('accuracy', acc[1])
         tf.summary.scalar('precision', prec[1])
         tf.summary.scalar('recall', rec[1])
+        tf.summary.scalar('regularization_loss', regularization_loss[1])
 
         return acc, prec, rec
 

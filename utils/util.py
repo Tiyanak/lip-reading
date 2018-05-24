@@ -67,11 +67,13 @@ def plot_training_progress(data, datasetname, modelname):
     ax5.plot(x_data, data['lr'], marker='o', color=train_color, linewidth=linewidth, linestyle='-', label='learning_rate')
     ax5.legend(loc='upper right', fontsize=legend_size)
 
-    pdfFile = os.path.join(config.config['results_root_dir'], datasetname, modelname, config.config['filename_pattern'] + config.PDF_EXT)
+    result_dir = os.path.join(config.config['results_root_dir'], datasetname, modelname)
+    create_dir(result_dir)
+    pdfFile = os.path.join(result_dir, config.config['filename_pattern'] + config.PDF_EXT)
     print('Plotting in: ', pdfFile)
     plt.savefig(pdfFile)
 
-    csvFile = os.path.join(config.config['results_root_dir'], datasetname, modelname, config.config['filename_pattern'] + config.CSV_EXT)
+    csvFile = os.path.join(result_dir, config.config['filename_pattern'] + config.CSV_EXT)
 
     with open(csvFile, 'w') as f:
 

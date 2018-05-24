@@ -7,7 +7,7 @@ config['dataset_types'] = ['train', 'val', 'test']
 
 config['max_epochs'] = 10
 config['batch_size'] = 20
-config['log_every'] = 200
+config['log_every'] = 1000
 config['save_every'] = 0.05
 config['learning_rate'] = 5e-4
 config['decay_steps'] = 10000

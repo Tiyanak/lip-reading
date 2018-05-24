@@ -27,9 +27,9 @@ class LrwDataset:
         self.num_batches_valid = self.num_valid_examples // self.batch_size
         self.num_batches_test = self.num_test_examples // self.batch_size
 
-        train_file_queue = tf.train.string_input_producer(self.train_tfrecords, capacity=len(self.train_tfrecords))
-        valid_file_queue = tf.train.string_input_producer(self.valid_tfrecords, capacity=len(self.valid_tfrecords))
-        test_file_queue = tf.train.string_input_producer(self.test_tfrecords, capacity=len(self.test_tfrecords))
+        train_file_queue = tf.train.string_input_producer(self.train_tfrecords, capacity=len(self.train_tfrecords), shuffle=True)
+        valid_file_queue = tf.train.string_input_producer(self.valid_tfrecords, capacity=len(self.valid_tfrecords), shuffle=True)
+        test_file_queue = tf.train.string_input_producer(self.test_tfrecords, capacity=len(self.test_tfrecords), shuffle=True)
 
         train_images, train_labels = self.input_decoder(train_file_queue, 'train')
         valid_images, valid_labels = self.input_decoder(valid_file_queue, 'val')
@@ -37,17 +37,16 @@ class LrwDataset:
 
         if is_training:
             self.train_images, self.train_labels = tf.train.shuffle_batch(
-                [train_images, train_labels], batch_size=self.batch_size, shapes=shapes, capacity=100,
-                min_after_dequeue=50)
+                [train_images, train_labels], batch_size=self.batch_size, capacity=100, min_after_dequeue=50)
         else:
             self.train_images, self.train_labels = tf.train.batch(
-                [train_images, train_labels], batch_size=self.batch_size, shapes=shapes)
+                [train_images, train_labels], batch_size=self.batch_size)
 
         self.valid_images, self.valid_labels = tf.train.batch(
-            [valid_images, valid_labels], batch_size=self.batch_size, shapes=shapes)
+            [valid_images, valid_labels], batch_size=self.batch_size)
 
         self.test_images, self.test_labels = tf.train.batch(
-            [test_images, test_labels], batch_size=self.batch_size, shapes=shapes)
+            [test_images, test_labels], batch_size=self.batch_size)
 
     def _initConfig(self):
 
@@ -83,17 +82,12 @@ class LrwDataset:
         features = tf.parse_single_example(record_string, features_dict)
 
         images = tf.decode_raw(features[dataset_type + '/video'], tf.uint8)
-        images = tf.cast(images, dtype=tf.float32)
         label = tf.cast(features[dataset_type + '/label'], tf.int32)
 
-        images = tf.reshape(images, INPUT_SHAPE)
-
-        return images, label
+        return tf.reshape(images, INPUT_SHAPE), label
 
     def input_decoder(self, filename_queue, dataset_type):
-        reader = tf.TFRecordReader(
-            options=tf.python_io.TFRecordOptions(tf.python_io.TFRecordCompressionType.GZIP)
-        )
+        reader = tf.TFRecordReader()
         key, record_string = reader.read(filename_queue)
 
         return self.parse_sequence_example(record_string, dataset_type)

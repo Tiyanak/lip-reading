@@ -1,4 +1,4 @@
-from utils import config
+import config
 import os
 
 class Logger():

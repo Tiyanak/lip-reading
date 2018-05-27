@@ -1,7 +1,8 @@
 import tensorflow as tf
 import tensorflow.contrib.layers as contrib_layers
 
-from utils import config
+import config
+
 
 ### AKTIVACIJE ###
 def selu(x):
@@ -23,7 +24,7 @@ def softmax_cross_entropy(labels, logits):
     return tf.nn.softmax_cross_entropy_with_logits_v2(logits=logits, labels=labels)
 
 def decayLearningRate(learning_rate, global_step, decay_steps, decay_rate):
-    return tf.train.exponential_decay(learning_rate, global_step, decay_steps, decay_rate, staircase=False, name='learning_rate_decay')
+    return tf.train.exponential_decay(learning_rate, global_step, decay_steps, decay_rate, staircase=False, name=None)
 
 ### POMOCNE FUNKCIJE ###
 def concat(input, axis=0):
@@ -44,7 +45,7 @@ def onehot_to_class(Yoh):
 def stack(itemList, axis=0):
     return tf.stack(itemList, axis=axis)
 
-def flatten(input, name='flatten'):
+def flatten(input, name=None):
     return contrib_layers.flatten(input, scope=name)
 
 def add(input1, input2):
@@ -103,44 +104,50 @@ def recallAtTopK(labels, preds, k):
     return tf.metrics.recall_at_top_k(labels, preds, k)
 
 ### KONVOLUCIJSKI SLOJEVI ###
-def conv2d(input, filters=16, kernel_size=[3, 3], padding="same", stride=1, activation_fn=relu, reuse=None, name="conv2d",
-           weights_initializer=xavier_initializer(), biases_initializer=tf.zeros_initializer(), weights_regularizer=None, biases_regularizer=None):
+def conv2d(input, filters=16, kernel_size=3, padding="same", stride=1, activation_fn=relu, reuse=None, name=None, data_format='NHWC',
+           weights_initializer=xavier_initializer(), biases_initializer=tf.zeros_initializer(), weights_regularizer=None, biases_regularizer=None,
+           normalizer_fn=None, normalizer_params=None):
 
-   return contrib_layers.conv2d(input, num_outputs=filters, kernel_size=kernel_size, padding=padding, stride=stride, scope=name,
+   return contrib_layers.conv2d(input, num_outputs=filters, kernel_size=kernel_size, padding=padding, stride=stride, scope=name, data_format=data_format,
                         activation_fn=activation_fn, reuse=reuse, weights_initializer=weights_initializer, biases_initializer=biases_initializer,
-                        weights_regularizer=weights_regularizer, biases_regularizer=biases_regularizer)
+                        weights_regularizer=weights_regularizer, biases_regularizer=biases_regularizer, normalizer_fn=normalizer_fn, normalizer_params=normalizer_params)
 
-def conv3d(input, filters=16, kernel_size=[3, 3, 3], padding="same", stride=1, activation_fn=relu, reuse=None, name="conv3d",
-           weights_initializer=None, biases_initializer=tf.zeros_initializer(), weights_regularizer=None, biases_regularizer=None):
+def conv3d(input, filters=16, kernel_size=3, padding="same", stride=1, activation_fn=relu, reuse=None, name=None, data_format='NDHWC',
+           weights_initializer=None, biases_initializer=tf.zeros_initializer(), weights_regularizer=None, biases_regularizer=None,
+           normalizer_fn=None, normalizer_params=None):
 
-    return contrib_layers.conv2d(input, num_outputs=filters, kernel_size=kernel_size, padding=padding, stride=stride, scope=name,
-                                 activation_fn=activation_fn, reuse=reuse, weights_initializer=weights_initializer,
-                                 biases_initializer=biases_initializer, weights_regularizer=weights_regularizer, biases_regularizer=biases_regularizer)
+    return contrib_layers.conv3d(input, num_outputs=filters, kernel_size=kernel_size, padding=padding, stride=stride, scope=name,
+                                 activation_fn=activation_fn, reuse=reuse, weights_initializer=weights_initializer, data_format=data_format,
+                                 biases_initializer=biases_initializer, weights_regularizer=weights_regularizer, biases_regularizer=biases_regularizer,
+                                 normalizer_fn=normalizer_fn, normalizer_params = normalizer_params)
 
 ### SLOJEVI SAZIMANJA ###
-def max_pool2d(input, kernel_size=[3, 3], stride=2, padding='VALID', name="max_pool2d"):
-    return contrib_layers.max_pool2d(input, kernel_size=kernel_size, stride=stride, padding=padding, scope=name)
+def max_pool2d(input, kernel_size=3, stride=2, padding='VALID', name=None, data_format='NHWC'):
+    return contrib_layers.max_pool2d(input, kernel_size=kernel_size, stride=stride, padding=padding, scope=name, data_format=data_format)
 
-def max_pool3d(input, kernel_size=[3, 3, 3], stride=2, padding='VALID', name='max_pool3d'):
-    return contrib_layers.max_pool2d(input, kernel_size=kernel_size, stride=stride, padding=padding, scope=name)
+def max_pool3d(input, kernel_size=3, stride=2, padding='VALID', name=None, data_format='NDHWC'):
+    return contrib_layers.max_pool3d(input, kernel_size=kernel_size, stride=stride, padding=padding, scope=name, data_format=data_format)
 
-def avg_pool2d(input, kernel_size=[3, 3], stride=2, padding='VALID', name="max_pool2d"):
-    return contrib_layers.avg_pool2d(input, kernel_size=kernel_size, stride=stride, padding=padding, scope=name)
+def avg_pool2d(input, kernel_size=3, stride=2, padding='VALID', name=None, data_format='NHWC'):
+    return contrib_layers.avg_pool2d(input, kernel_size=kernel_size, stride=stride, padding=padding, scope=name, data_format=data_format)
 
-def avg_pool3d(input, kernel_size=[3, 3, 3], stride=2, padding='VALID', name="max_pool3d"):
-    return contrib_layers.avg_pool2d(input, kernel_size=kernel_size, stride=stride, padding=padding, scope=name)
+def avg_pool3d(input, kernel_size=3, stride=2, padding='VALID', name=None, data_format='NDHWC'):
+    return contrib_layers.avg_pool3d(input, kernel_size=kernel_size, stride=stride, padding=padding, scope=name, data_format=data_format)
 
 ### POTPUNO POVEZANI SLOJ ###
 def fc(inputs, num_outputs, activation_fn=relu, weights_initializer=xavier_initializer(), weights_regularizer=None,
-    biases_initializer=tf.zeros_initializer(), biases_regularizer=None, reuse=None, name=None):
+    biases_initializer=tf.zeros_initializer(), biases_regularizer=None, reuse=None, name=None, normalizer_fn=None,
+                                                normalizer_params=None):
 
     return contrib_layers.fully_connected(inputs, num_outputs=num_outputs, activation_fn=activation_fn, scope=name, reuse=reuse,
                         weights_initializer=weights_initializer, biases_initializer=biases_initializer,
-                        weights_regularizer=weights_regularizer, biases_regularizer=biases_regularizer)
+                        weights_regularizer=weights_regularizer, biases_regularizer=biases_regularizer,
+                        normalizer_fn=normalizer_fn, normalizer_params=normalizer_params)
 
 ### NORMALIZACIJA ###
-def batchNormalization(input, is_training=True, reuse=None, name='bn'):
-    return contrib_layers.batch_norm(inputs=input, is_training=is_training, reuse=reuse, scope=name)
+def batchNormalization(input, is_training=True, reuse=None, name=None, decay=0.999, center=True, scale=True,
+            epsilon=0.001, updates_collections=None):
+    return contrib_layers.batch_norm(inputs=input, is_training=is_training, reuse=reuse, scope=name, decay=decay, center=center, scale=scale, epsilon=epsilon, updates_collections=updates_collections)
 
 def lrn (input):
     return tf.nn.local_response_normalization(input)

@@ -2,16 +2,17 @@ import os
 import math
 import tensorflow as tf
 import numpy as np
-from utils import config, util
+from src.utils import util
 
 DATASET_DIR = 'E:/workspace/relic-diplomski/data/he_ftts_irap_intersection_lines_350_140_tagged'
 INPUT_SHAPE = [25, 140, 350, 3]
 ADD_GEOLOCATIONS = False
 
-class RoadDataset:
+class RoadDataset():
 
-    def __init__(self, is_training=True):
+    def __init__(self, is_training=True, batch_size=20):
 
+        self.batch_size = batch_size
         self._initConfig()
 
         if ADD_GEOLOCATIONS:
@@ -97,7 +98,6 @@ class RoadDataset:
 
         self.name = 'road'
         util.create_dir(DATASET_DIR)
-        self.batch_size = config.config['batch_size']
         self.frames = INPUT_SHAPE[0]
         self.h = INPUT_SHAPE[1]
         self.w = INPUT_SHAPE[2]

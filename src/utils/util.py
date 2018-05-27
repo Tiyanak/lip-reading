@@ -9,7 +9,8 @@ import sklearn as sk
 import operator
 
 from sklearn.metrics import confusion_matrix
-from utils import config
+import config
+import pickle
 
 def shuffle_data(data_x, data_y):
     indices = np.arange(data_x.shape[0])
@@ -17,6 +18,12 @@ def shuffle_data(data_x, data_y):
     shuffled_data_x = np.ascontiguousarray(data_x[indices])
     shuffled_data_y = np.ascontiguousarray(data_y[indices])
     return shuffled_data_x, shuffled_data_y
+
+def unpickle(file):
+    fo = open(file, 'rb')
+    dict = pickle.load(fo, encoding='latin1')
+    fo.close()
+    return dict
 
 def _int64_feature(value):
   return tf.train.Feature(int64_list=tf.train.Int64List(value=[value]))
@@ -123,7 +130,8 @@ def video_to_images(path):
 
 def draw_image(img, figureIndex=0):
     plt.figure(figureIndex)
-    img = img.astype(np.uint8)
+    if img.shape[-1] == 1:
+        img = np.reshape(img, [img.shape[0], img.shape[1]])
     ski.io.imshow(img)
     ski.io.show()
 
@@ -233,10 +241,11 @@ def testStatistics(labels, preds_onehot):
     classNums = len(preds_onehot[0])
     labelsResultsDict = {}
     labelsStat = {}
+    numOfTopItems = 10 if classNums >= 10 else classNums
 
     for i in range(classNums):
         labelsResultsDict[i] = (0)
-        labelsStat[i] = (10, [], [])
+        labelsStat[i] = (numOfTopItems, [], [])
 
     for item in mapTop10ForEveryLabel(labels, preds_onehot):
         if item[0] in item[1]:
@@ -245,7 +254,7 @@ def testStatistics(labels, preds_onehot):
             labelsTopIndexes = labelsStat[item[0]][1]
             labelsTopProbs = labelsStat[item[0]][2]
 
-            for j in range(10):
+            for j in range(numOfTopItems):
                 if item[1][j] == item[0] and j <= labelsProbIndex:
                     labelsProbIndex = j
                     labelsTopIndexes = item[1]
@@ -257,8 +266,8 @@ def testStatistics(labels, preds_onehot):
 
         else:
 
-            if labelsStat[item[0]][0] == 10:
-                labelsStat[item[0]] = (10, item[1], item[2])
+            if labelsStat[item[0]][0] == numOfTopItems:
+                labelsStat[item[0]] = (numOfTopItems, item[1], item[2])
 
     sorted_x = sorted(labelsResultsDict.items(), key=operator.itemgetter(1))
 
@@ -287,3 +296,27 @@ def vgg_normalization(images, rgb_mean, axis=3):
         b - rgb_mean[2]
     ])
     return rgb
+
+
+def mnistClassmap(numAsKeys=True):
+
+    mnistMap = {}
+    for i in range(10):
+        if numAsKeys:
+            mnistMap[i] = str(i)
+        else:
+            mnistMap[str(i)] = i
+
+    return mnistMap
+
+
+def cifarClassmap(cifarClassesFile):
+
+    cifarMap = {}
+    with open(cifarClassesFile, 'r') as file:
+        counter = 0
+        for line in file.readlines():
+            cifarMap[line.replace('\n', '')] = counter
+            counter = counter + 1
+    file.close()
+    return cifarMap

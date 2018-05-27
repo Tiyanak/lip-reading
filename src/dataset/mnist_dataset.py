@@ -2,26 +2,27 @@ import os
 import math
 import tensorflow as tf
 import numpy as np
-from utils import config, util
+from src.utils import util
+from src.read_write.mnist_reader import MnistReader
 
-DATASET_DIR = 'D:/faks/diplomski/lip-reading/data/tfrecords/lrw_tfrecords'
-INPUT_SHAPE = [29, 112, 112, 3]
+DATASET_DIR = 'D:/faks/diplomski/lip-reading/data/tfrecords/mnist_tfrecords'
+INPUT_SHAPE = [1, 112, 112, 1]
 
-class LrwDataset:
+class MnistDataset():
 
-    def __init__(self, is_training=True):
+    def __init__(self, is_training=True, batch_size=20):
 
         self._initConfig()
-
-        shapes = [INPUT_SHAPE, []]
+        self.batch_size = batch_size
+        self.mnistReader = MnistReader()
 
         self.train_tfrecords = self.getTfRecordFiles('train')
         self.valid_tfrecords = self.getTfRecordFiles('val')
         self.test_tfrecords = self.getTfRecordFiles('test')
 
-        self.num_train_examples = self.numberOfExamples('train')
-        self.num_valid_examples = self.numberOfExamples('val')
-        self.num_test_examples = self.numberOfExamples('test')
+        self.num_train_examples = self.mnistReader.num_train_examples
+        self.num_valid_examples = self.mnistReader.num_valid_examples
+        self.num_test_examples = self.mnistReader.num_test_examples
 
         self.num_batches_train = self.num_train_examples // self.batch_size
         self.num_batches_valid = self.num_valid_examples // self.batch_size
@@ -31,9 +32,9 @@ class LrwDataset:
         valid_file_queue = tf.train.string_input_producer(self.valid_tfrecords, capacity=len(self.valid_tfrecords), shuffle=True)
         test_file_queue = tf.train.string_input_producer(self.test_tfrecords, capacity=len(self.test_tfrecords), shuffle=True)
 
-        train_images, train_labels = self.input_decoder(train_file_queue, 'train')
-        valid_images, valid_labels = self.input_decoder(valid_file_queue, 'val')
-        test_images, test_labels = self.input_decoder(test_file_queue, 'test')
+        train_images, train_labels = self.input_decoder(train_file_queue)
+        valid_images, valid_labels = self.input_decoder(valid_file_queue)
+        test_images, test_labels = self.input_decoder(test_file_queue)
 
         if is_training:
             self.train_images, self.train_labels = tf.train.shuffle_batch(
@@ -50,14 +51,13 @@ class LrwDataset:
 
     def _initConfig(self):
 
-        self.name = 'lrw'
+        self.name = 'mnist'
         util.create_dir(DATASET_DIR)
-        self.batch_size = config.config['batch_size']
         self.frames = INPUT_SHAPE[0]
         self.h = INPUT_SHAPE[1]
         self.w = INPUT_SHAPE[2]
         self.c = INPUT_SHAPE[3]
-        self.num_classes = 500
+        self.num_classes = 10
 
     def getTfRecordFiles(self, datasettype):
 
@@ -74,23 +74,23 @@ class LrwDataset:
 
         return tfRecordsList
 
-    def parse_sequence_example(self, record_string, dataset_type):
+    def parse_sequence_example(self, record_string):
 
-        features_dict = {dataset_type + '/video': tf.FixedLenFeature([], tf.string),
-                   dataset_type + '/label': tf.FixedLenFeature([], tf.int64)}
+        features_dict = {'/image': tf.FixedLenFeature([], tf.string),
+                   '/label': tf.FixedLenFeature([], tf.int64)}
 
         features = tf.parse_single_example(record_string, features_dict)
 
-        images = tf.decode_raw(features[dataset_type + '/video'], tf.uint8)
-        label = tf.cast(features[dataset_type + '/label'], tf.int32)
+        images = tf.decode_raw(features['/image'], tf.float32)
+        label = tf.cast(features['/label'], tf.int32)
 
         return tf.reshape(images, INPUT_SHAPE), label
 
-    def input_decoder(self, filename_queue, dataset_type):
+    def input_decoder(self, filename_queue):
         reader = tf.TFRecordReader()
         key, record_string = reader.read(filename_queue)
 
-        return self.parse_sequence_example(record_string, dataset_type)
+        return self.parse_sequence_example(record_string)
 
     def mean_image_normalization(self, sess):
 
@@ -111,17 +111,3 @@ class LrwDataset:
         print('Done with mean channel image dataset normalization...')
 
         return mean_channels
-
-    def numberOfExamples(self, datasetType):
-
-        dataDir = os.path.join(DATASET_DIR, datasetType)
-        if not os.path.exists(dataDir):
-            return 0
-
-        totalDataNumber = 0
-        for file in os.listdir(dataDir):
-            filename = os.fsdecode(file)
-            if filename.endswith(".txt"):
-                totalDataNumber += len(open(os.path.join(dataDir, filename), 'r').readlines())
-
-        return totalDataNumber

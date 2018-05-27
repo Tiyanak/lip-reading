@@ -1,14 +1,23 @@
-from utils import config, util
-from cnn import layers
+from src.utils import util
+import config
+from src.cnn import layers
 import tensorflow as tf
 import time
 import os
 import numpy as np
-from dataset import lrw_dataset, mnist_dataset, road_dataset
+from src.dataset import lrw_dataset, mnist_original_dataset, road_dataset, mnist_dataset, cifar_dataset
 
-DATASET_TO_USE = 'lrw'
+DATASET_TO_USE = 'cifar'
+LOG_EVERY = 200 if DATASET_TO_USE == 'road' else 1000
+SAVE_EVERY = 0.2
+DECAY_STEPS = 10000 # broj koraka za smanjivanje stope ucenja
+DECAY_RATE = 0.96 # rate smanjivanja stope ucenja
+REGULARIZER_SCALE = 0.1 # faktor regularizacije
+LEARNING_RATE = 5e-4
+BATCH_SIZE = 20
+MAX_EPOCHS = 10
 
-class EF:
+class SimpleCNN():
 
     def __init__(self):
 
@@ -26,15 +35,10 @@ class EF:
 
         print("CREATING MODEL")
 
-        self.initializer = layers.xavier_initializer()
-        self.regularizer = layers.l2_regularizer(self.regularizer_scale)
-        self.activation_fn = layers.relu
-
         self.global_step = tf.Variable(0, trainable=False)
         self.is_training = tf.placeholder_with_default(True, [], name='is_training')
 
         self.dataset_type = tf.placeholder_with_default('train_train', [], name='dataset_type')
-
         dataset_val = tf.placeholder_with_default('val', [], name='dataset_val')
         dataset_test = tf.placeholder_with_default('test', [], name='dataset_test')
 
@@ -48,63 +52,64 @@ class EF:
             self.X = tf.cast(self.dataset.train_images, dtype=tf.float32)
             self.Yoh = layers.toOneHot(self.dataset.train_labels, self.dataset.num_classes)
 
+        self.previewLabels = self.Yoh
         net = self.X
 
-        net = layers.rgb_to_grayscale(net)
-        net = tf.transpose(net, [0, 2, 3, 1, 4])
-        net = tf.reshape(net, [-1, net.shape[1], net.shape[2], net.shape[3] * net.shape[4]])
+        if net.shape[-1] > 1:
+            net = layers.rgb_to_grayscale(net)
 
-        net = layers.conv2d(net, filters=96, kernel_size=[3, 3], padding='VALID', stride=2, name='conv1',
-                           activation_fn=self.activation_fn, weights_initializer=self.initializer, weights_regularizer=self.regularizer)
-        net = layers.batchNormalization(input=net, is_training=self.is_training, name='bn1')
-        net = tf.nn.relu(net)
-        net = layers.max_pool2d(net, [3, 3], 2, padding='VALID', name='max_pool1')
+        if len(net.shape) > 4:
+            net = tf.transpose(net, [0, 2, 3, 1, 4])
+            net = tf.reshape(net, [-1, net.shape[1], net.shape[2], net.shape[3] * net.shape[4]])
+            self.previewImages = net
 
-        net = layers.conv2d(net, filters=256, kernel_size=[3, 3], padding='VALID', stride=2, name='conv2',
-                            activation_fn=self.activation_fn, weights_initializer=self.initializer, weights_regularizer=self.regularizer)
-        net = layers.batchNormalization(input=net, is_training=self.is_training, name='bn2')
-        net = tf.nn.relu(net)
-        net = layers.max_pool2d(net, [3, 3], 2, padding='VALID', name='max_pool2')
+        net = layers.conv2d(net, filters=32, kernel_size=3, padding='VALID', stride=1, name='conv1')
+        net = layers.max_pool2d(net, 2, 2, name='max_pool1')
 
-        net = layers.conv2d(net, filters=512, kernel_size=[3, 3], padding='SAME', stride=1, name='conv3',
-                            activation_fn=self.activation_fn, weights_initializer=self.initializer, weights_regularizer=self.regularizer)
+        net = layers.conv2d(net, filters=64, kernel_size=3, padding='VALID', stride=1, name='conv2')
+        net = layers.max_pool2d(net, 2, 2, name='max_pool2')
 
-        net = layers.conv2d(net, filters=512, kernel_size=[3, 3], padding='SAME', stride=1, name='conv4',
-                            activation_fn=self.activation_fn, weights_initializer=self.initializer,
-                            weights_regularizer=self.regularizer)
-
-        net = layers.conv2d(net, filters=512, kernel_size=[3, 3], padding='SAME', stride=1, name='conv5',
-                            activation_fn=self.activation_fn, weights_initializer=self.initializer,
-                            weights_regularizer=self.regularizer)
-        net = layers.max_pool2d(net, [3, 3], 2, padding='VALID', name='max_pool2')
+        net = layers.conv2d(net, filters=128, kernel_size=3, padding='VALID', stride=1, name='conv3')
+        net = layers.max_pool2d(net, 2, 2, name='max_pool2')
 
         net = layers.flatten(net, name='flatten')
 
-        net = layers.fc(net, 4096, self.activation_fn, name='fc6', weights_initializer=self.initializer, weights_regularizer=self.regularizer)
-        net = layers.fc(net, 4096, self.activation_fn, name='fc7', weights_initializer=self.initializer, weights_regularizer=self.regularizer)
-        net = layers.fc(net, self.dataset.num_classes, name='fc8', weights_initializer=self.initializer, weights_regularizer=self.regularizer)
+        net = layers.fc(net, 512, name='fc6')
+        net = layers.fc(net, 128, name='fc7')
+        net = layers.fc(net, self.dataset.num_classes, activation_fn=None, name='fc8')
 
         self.logits = net
         self.preds = layers.softmax(self.logits)
 
-        self.regularization_loss = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
-        self.loss = layers.reduce_mean(layers.softmax_cross_entropy(logits=self.logits, labels=self.Yoh)) + tf.reduce_sum(self.regularization_loss) * self.regularizer_scale
+        self.loss = layers.reduce_mean(layers.softmax_cross_entropy(logits=self.logits, labels=self.Yoh))
 
-        self.learning_rate = layers.decayLearningRate(self.learning_rate, self.global_step, self.decay_steps, self.decay_rate)
+        self.learning_rate = layers.decayLearningRate(self.starter_learning_rate, self.global_step, DECAY_STEPS, DECAY_RATE)
 
-        self.accuracy, self.precision, self.recall = self.createSummaries(self.Yoh, self.preds, self.loss, self.learning_rate, self.regularization_loss)
+        self.accuracy, self.precision, self.recall = self.createSummaries(self.Yoh, self.preds, self.loss, self.learning_rate)
 
         self.opt = layers.adam(self.learning_rate)
         self.train_op = self.opt.minimize(self.loss, global_step=self.global_step)
+
+    def previewData(self):
+
+        print("PREVIEWING DATA")
+
+        feed_dict = {self.is_training: True, self.dataset_type: 'train'}
+        eval_tensors = [self.previewImages, self.previewLabels]
+
+        x, y = self.sess.run(eval_tensors, feed_dict)
+
+        # USE DEBUGER HERE WITH BREAKPOINT TO MANUALLY EVALUATE IMAGES
+        util.draw_image(x[0], 0)
 
     def train(self):
 
         print("TRAINING IS STARTING RIGHT NOW!")
 
-        for epoch_num in range(1, self.max_epochs + 1):
+        for epoch_num in range(1, MAX_EPOCHS + 1):
 
             epoch_start_time = time.time()
-            currentSaveRate = self.save_every
+            currentSaveRate = SAVE_EVERY
 
             for step in range(self.dataset.num_batches_train):
 
@@ -112,7 +117,7 @@ class EF:
 
                 feed_dict = {self.is_training: True, self.dataset_type: 'train'}
                 eval_tensors = [self.loss, self.train_op]
-                if (step + 1) * self.batch_size % self.log_every == 0:
+                if (step + 1) * BATCH_SIZE % LOG_EVERY == 0:
                     eval_tensors += [self.merged_summary_op, self.accuracy, self.precision, self.recall]
 
                 eval_ret = self.sess.run(eval_tensors, feed_dict=feed_dict)
@@ -124,11 +129,11 @@ class EF:
                     self.summary_train_train_writer.add_summary(eval_ret[self.merged_summary_op], self.global_step.eval(session=self.sess))
 
                 duration = time.time() - start_time
-                util.log_step(epoch_num, step, duration, loss_val, self.batch_size, self.dataset.num_train_examples, self.log_every)
+                util.log_step(epoch_num, step, duration, loss_val, BATCH_SIZE, self.dataset.num_train_examples, LOG_EVERY)
 
                 if (step / self.dataset.num_batches_train) >= (currentSaveRate):
-                    self.saver.save(self.sess, os.path.join(self.checkpoint_dir, self.name + '.ckpt'))
-                    currentSaveRate += self.save_every
+                    self.saver.save(self.sess, os.path.join(self.checkpoint_dir, self.dataset.name, self.name + '.ckpt'))
+                    currentSaveRate += SAVE_EVERY
 
             epoch_time = time.time() - epoch_start_time
             print("Total epoch time training: {}".format(epoch_time))
@@ -158,20 +163,21 @@ class EF:
 
         util.plot_training_progress(self.plot_data, self.dataset.name, self.name)
 
-        self.test()
+        if self.dataset.name == 'lrw':
+            self.test()
 
     def validate(self, num_examples, epoch, dataset_type="train"):
 
         losses = []
         preds = np.ndarray((0,), dtype=np.int64)
         labels = np.ndarray((0,), dtype=np.int64)
-        num_batches = num_examples // self.batch_size
+        num_batches = num_examples // BATCH_SIZE
 
         for step in range(num_batches):
 
             eval_tensors = [self.Yoh, self.preds, self.loss, self.accuracy, self.precision, self.recall]
-            if (step + 1) * self.batch_size % self.log_every == 0:
-                print("Evaluating {}, done: {}/{}".format(dataset_type, (step + 1) * self.batch_size, num_batches * self.batch_size))
+            if (step + 1) * BATCH_SIZE % LOG_EVERY == 0:
+                print("Evaluating {}, done: {}/{}".format(dataset_type, (step + 1) * BATCH_SIZE, num_batches * BATCH_SIZE))
                 eval_tensors += [self.merged_summary_op]
 
             feed_dict = {self.is_training: False, self.dataset_type: dataset_type}
@@ -210,9 +216,9 @@ class EF:
 
         for step in range(self.dataset.num_batches_test):
 
-            eval_tensors = [self.preds, self.loss, self.accuracy, self.precision, self.recall]
-            if (step + 1) * self.batch_size % self.log_every == 0:
-                print("Evaluating {}, done: {}/{}".format('test', (step + 1) * self.batch_size, self.dataset.num_test_examples))
+            eval_tensors = [self.Yoh, self.preds, self.loss, self.accuracy, self.precision, self.recall]
+            if (step + 1) * BATCH_SIZE % LOG_EVERY == 0:
+                print("Evaluating {}, done: {}/{}".format('test', (step + 1) * BATCH_SIZE, self.dataset.num_test_examples))
                 eval_tensors += [self.merged_summary_op]
 
             feed_dict = {self.is_training: False, self.dataset_type: 'test'}
@@ -227,10 +233,10 @@ class EF:
 
             if preds.size == 0:
                 labels = np.argmax(eval_ret[self.Yoh], axis=1)
-                preds = np.argmax(eval_ret[self.preds], axis=1)
+                preds = eval_ret[self.preds]
             else:
                 labels = np.concatenate((labels, np.argmax(eval_ret[self.Yoh], axis=1)), axis=0)
-                preds = np.concatenate((preds, np.argmax(eval_ret[self.preds], axis=1)), axis=0)
+                preds = np.concatenate((preds, eval_ret[self.preds]), axis=0)
 
         total_loss = np.mean(losses)
         acc, pr, rec = util.acc_prec_rec_score(labels, np.argmax(preds, axis=1))
@@ -241,19 +247,12 @@ class EF:
     def initConfig(self):
 
         print("INITIALIZING CONFIGURATION VARIABLES")
-        self.name = 'ef'
-        self.learning_rate = config.config['learning_rate']
-        self.regularizer_scale = config.config['regularizer_scale']
-        self.decay_steps = config.config['decay_steps'] # broj koraka za smanjivanje stope ucenja
-        self.decay_rate = config.config['decay_rate'] # rate smanjivanja stope ucenja
-        self.max_epochs = config.config['max_epochs'] # broj epoha ucenja
-        self.log_every = config.config['log_every'] # ispisi na sout svakih x slika
-        self.batch_size = config.config['batch_size'] # velicina batcha
-        self.save_every = config.config['save_every'] # spremi session svakih x posto epohe
+        self.name = 'simple_cnn'
+        self.starter_learning_rate = LEARNING_RATE
         self.checkpoint_dir = config.config['checkpoint_root_dir'] # direktorij gdje se nalazi checkpoint
         self.summary_dir = config.config['summary_root_dir']
 
-    def createSummaries(self, labelsOH, predsOH, loss, learning_rate, regularization_loss):
+    def createSummaries(self, labelsOH, predsOH, loss, learning_rate):
 
         labels = layers.onehot_to_class(labelsOH)
         preds = layers.onehot_to_class(predsOH)
@@ -265,7 +264,6 @@ class EF:
         tf.summary.scalar('accuracy', acc[1])
         tf.summary.scalar('precision', prec[1])
         tf.summary.scalar('recall', rec[1])
-        tf.summary.scalar('regularization_loss', regularization_loss[1])
 
         return acc, prec, rec
 
@@ -307,6 +305,10 @@ class EF:
                 self.dataset = road_dataset.RoadDataset()
             elif DATASET_TO_USE == 'mnist':
                 self.dataset = mnist_dataset.MnistDataset()
+            elif DATASET_TO_USE == 'mnist_original':
+                self.dataset = mnist_original_dataset.MnistOriginalDataset()
+            elif DATASET_TO_USE == 'cifar':
+                self.dataset = cifar_dataset.CifarDataset()
             else:
                 print("NIJE ODABRAN DATASET!")
 
@@ -325,7 +327,8 @@ class EF:
 
     def createRestorer(self):
         if os.path.exists(os.path.join(self.checkpoint_dir, self.name + '.ckpt.meta')):
-            self.saver.restore(self.sess, os.path.join(self.checkpoint_dir, self.name + '.ckpt'))
+            self.saver.restore(self.sess, os.path.join(self.checkpoint_dir, self.dataset.name, self.name + '.ckpt'))
 
-ef = EF()
-ef.train()
+model = SimpleCNN()
+model.train()
+# model.previewData()

@@ -86,10 +86,10 @@ class MT_3_ResNet:
 
         net = layers.flatten(net, name='flatten')
 
-        net = layers.fc(net, 4096, self.activation_fn, name='fc6', weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
+        net = layers.fc(net, 4096, name='fc6', weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
                         normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
 
-        net = layers.fc(net, 4096, self.activation_fn, name='fc7', weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
+        net = layers.fc(net, 4096, name='fc7', weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
                         normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
 
         net = layers.fc(net, self.dataset.num_classes, activation_fn=None, name='fc8',

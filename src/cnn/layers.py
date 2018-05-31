@@ -1,8 +1,9 @@
 import tensorflow as tf
 import tensorflow.contrib.layers as contrib_layers
-
-import config
-
+import numpy as np
+from src import config
+from tensorflow.contrib.framework.python.framework import checkpoint_utils
+slim = tf.contrib.slim
 
 ### AKTIVACIJE ###
 def selu(x):
@@ -56,6 +57,26 @@ def toOneHot(input, num_classes):
 
 def reduce_mean(input):
     return tf.reduce_mean(input)
+
+def convertImageType(image):
+    return tf.image.convert_image_dtype(image, dtype=tf.float32)
+
+def imageStandardization(image):
+    return tf.image.per_image_standardization(image)
+
+def imagesStandardization(images):
+    return tf.map_fn(lambda frame: tf.image.per_image_standardization(frame), images)
+
+def scan_checkpoint_for_vars(checkpoint_path, vars_to_check):
+    check_var_list = checkpoint_utils.list_variables(checkpoint_path)
+    check_var_list = [x[0] for x in check_var_list]
+    check_var_set = set(check_var_list)
+    vars_in_checkpoint = [x for x in vars_to_check if x.name[:x.name.index(":")] in check_var_set]
+    vars_not_in_checkpoint = [x for x in vars_to_check if x.name[:x.name.index(":")] not in check_var_set]
+    return vars_in_checkpoint, vars_not_in_checkpoint
+
+def latest_checkpoint(ckpt_dir, ckpt_prefix):
+    return tf.train.latest_checkpoint(ckpt_dir, ckpt_prefix)
 
 ### OPTIMIZATORI ###
 def adam(learningRate):

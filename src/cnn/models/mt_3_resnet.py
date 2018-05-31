@@ -1,5 +1,5 @@
 from src.utils import util
-import config
+from src import config
 from src.cnn import layers
 import tensorflow as tf
 import time

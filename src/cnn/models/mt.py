@@ -1,5 +1,5 @@
 from src.utils import util
-import config
+from src import config
 from src.cnn import layers
 import tensorflow as tf
 import time
@@ -7,14 +7,14 @@ import os
 import numpy as np
 from src.dataset import lrw_dataset, mnist_original_dataset, road_dataset, mnist_dataset, cifar_dataset
 
-DATASET_TO_USE = 'lrw'
+DATASET_TO_USE = 'road'
 LOG_EVERY = 200 if DATASET_TO_USE == 'road' else 1000
 SAVE_EVERY = 0.2
 DECAY_STEPS = 10000 # broj koraka za smanjivanje stope ucenja
 DECAY_RATE = 0.96 # rate smanjivanja stope ucenja
 REGULARIZER_SCALE = 0.1 # faktor regularizacije
 LEARNING_RATE = 5e-4
-BATCH_SIZE = 20
+BATCH_SIZE = 10
 MAX_EPOCHS = 10
 
 class MT:

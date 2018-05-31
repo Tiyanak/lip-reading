@@ -4,6 +4,7 @@ import tensorflow as tf
 import numpy as np
 from src.utils import util
 from src.read_write.cifar_reader import CifarReader
+from src.cnn import layers
 
 DATASET_DIR = 'D:/faks/diplomski/lip-reading/data/tfrecords/cifar_tfrecords'
 INPUT_SHAPE = [1, 112, 112, 3]
@@ -12,42 +13,55 @@ class CifarDataset():
 
     def __init__(self, is_training=True, batch_size=20):
 
-        self._initConfig()
-        self.batch_size = batch_size
-        self.ciarReader = CifarReader()
+        with tf.device("/CPU:0"):
 
-        self.train_tfrecords = self.getTfRecordFiles('train')
-        self.valid_tfrecords = self.getTfRecordFiles('val')
-        self.test_tfrecords = self.getTfRecordFiles('test')
+            self._initConfig()
+            self.batch_size = batch_size
+            self.ciarReader = CifarReader()
 
-        self.num_train_examples = self.ciarReader.num_train_examples
-        self.num_valid_examples = self.ciarReader.num_val_examples
-        self.num_test_examples = self.ciarReader.num_test_examples
+            self.train_tfrecords = self.getTfRecordFiles('train')
+            self.valid_tfrecords = self.getTfRecordFiles('val')
+            self.test_tfrecords = self.getTfRecordFiles('test')
 
-        self.num_batches_train = self.num_train_examples // self.batch_size
-        self.num_batches_valid = self.num_valid_examples // self.batch_size
-        self.num_batches_test = self.num_test_examples // self.batch_size
+            self.num_train_examples = self.ciarReader.num_train_examples
+            self.num_valid_examples = self.ciarReader.num_val_examples
+            self.num_test_examples = self.ciarReader.num_test_examples
 
-        train_file_queue = tf.train.string_input_producer(self.train_tfrecords, capacity=len(self.train_tfrecords), shuffle=True)
-        valid_file_queue = tf.train.string_input_producer(self.valid_tfrecords, capacity=len(self.valid_tfrecords), shuffle=True)
-        test_file_queue = tf.train.string_input_producer(self.test_tfrecords, capacity=len(self.test_tfrecords), shuffle=True)
+            self.num_batches_train = self.num_train_examples // self.batch_size
+            self.num_batches_valid = self.num_valid_examples // self.batch_size
+            self.num_batches_test = self.num_test_examples // self.batch_size
 
-        train_images, train_labels = self.input_decoder(train_file_queue)
-        valid_images, valid_labels = self.input_decoder(valid_file_queue)
-        test_images, test_labels = self.input_decoder(test_file_queue)
+            train_file_queue = tf.train.string_input_producer(self.train_tfrecords, capacity=len(self.train_tfrecords), shuffle=True)
+            valid_file_queue = tf.train.string_input_producer(self.valid_tfrecords, capacity=len(self.valid_tfrecords), shuffle=True)
+            test_file_queue = tf.train.string_input_producer(self.test_tfrecords, capacity=len(self.test_tfrecords), shuffle=True)
 
-        if is_training:
-            self.train_images, self.train_labels = tf.train.shuffle_batch(
-                [train_images, train_labels], batch_size=self.batch_size, capacity=100, min_after_dequeue=50)
-        else:
-            self.train_images, self.train_labels = tf.train.batch(
-                [train_images, train_labels], batch_size=self.batch_size)
+            train_images, train_labels = self.input_decoder(train_file_queue)
+            valid_images, valid_labels = self.input_decoder(valid_file_queue)
+            test_images, test_labels = self.input_decoder(test_file_queue)
 
-        self.valid_images, self.valid_labels = tf.train.batch(
-            [valid_images, valid_labels], batch_size=self.batch_size)
+        with tf.device("/GPU:0"):
+            train_images = layers.convertImageType(train_images)
+            valid_images = layers.convertImageType(valid_images)
+            test_images = layers.convertImageType(test_images)
 
-        self.test_images, self.test_labels = tf.train.batch(
-            [test_images, test_labels], batch_size=self.batch_size)
+            train_images = layers.imagesStandardization(train_images)
+            valid_images = layers.imagesStandardization(valid_images)
+            test_images = layers.imagesStandardization(test_images)
+
+        with tf.device("/CPU:0"):
+
+            if is_training:
+                self.train_images, self.train_labels = tf.train.shuffle_batch(
+                    [train_images, train_labels], batch_size=self.batch_size, capacity=100, min_after_dequeue=50)
+            else:
+                self.train_images, self.train_labels = tf.train.batch(
+                    [train_images, train_labels], batch_size=self.batch_size)
+
+            self.valid_images, self.valid_labels = tf.train.batch(
+                [valid_images, valid_labels], batch_size=self.batch_size)
+
+            self.test_images, self.test_labels = tf.train.batch(
+                [test_images, test_labels], batch_size=self.batch_size)
 
     def _initConfig(self):
 

@@ -7,17 +7,17 @@ import os
 import numpy as np
 from src.dataset import lrw_dataset, mnist_original_dataset, road_dataset, mnist_dataset, cifar_dataset
 
-DATASET_TO_USE = 'road'
+DATASET_TO_USE = 'lrw'
 LOG_EVERY = 200 if DATASET_TO_USE == 'road' else 1000
 SAVE_EVERY = 0.2
 DECAY_STEPS = 10000 # broj koraka za smanjivanje stope ucenja
 DECAY_RATE = 0.96 # rate smanjivanja stope ucenja
 REGULARIZER_SCALE = 0.1 # faktor regularizacije
-LEARNING_RATE = 5e-4
+LEARNING_RATE = 1e-2
 BATCH_SIZE = 20
 MAX_EPOCHS = 10
 
-class VGG16:
+class ResNet18():
 
     def __init__(self):
 
@@ -39,6 +39,8 @@ class VGG16:
         self.is_training = tf.placeholder_with_default(True, [], name='is_training')
         self.dataset_type = tf.placeholder_with_default('train_train', [], name='dataset_type')
 
+        self.regularizer = layers.l2_regularizer(REGULARIZER_SCALE)
+
         dataset_val = tf.placeholder_with_default('val', [], name='dataset_val')
         dataset_test = tf.placeholder_with_default('test', [], name='dataset_test')
 
@@ -52,81 +54,109 @@ class VGG16:
             self.X = tf.cast(self.dataset.train_images, dtype=tf.float32)
             self.Yoh = layers.toOneHot(self.dataset.train_labels, self.dataset.num_classes)
 
-        bn_params = {'decay': 0.999, 'center': True, 'scale': True, 'epsilon': 0.001, 'updates_collections': None, 'is_training': self.is_training}
+        self.previewImages = self.X
+        self.previewLabels = self.Yoh
 
-        concated = None
-        reuse = None
-        for sequence_image in range(self.dataset.frames):
+        net = self.X
 
-            net = self.vgg_loop(self.X[:, sequence_image], reuse)
+        net = layers.transpose(net, [0, 2, 3, 1, 4])
+        net = layers.reshape(net, [-1, net.shape[1], net.shape[2], net.shape[3] * net.shape[4]])
 
-            net_shape = net.get_shape()
-            net = tf.reshape(net, [BATCH_SIZE, int(net_shape[1]) * int(net_shape[2]) * int(net_shape[3])])
+        net = self.build_resnet_18(net)
+        net = layers.flatten(net, name='flatten')
+        net = layers.fc(net, self.dataset.num_classes, activation_fn=None, name='fc8', weights_regularizer=self.regularizer)
 
-            net = layers.fc(net, 64, name='spatial_FC', reuse=reuse,
-                            normalizer_fn=layers.batchNormalization, normalizer_params=bn_params,
-                            weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
-
-            if concated is None:
-                concated = tf.expand_dims(net, axis=1)
-            else:
-                concated = tf.concat([concated, tf.expand_dims(net, axis=1)], axis=1)
-
-            reuse = True
-
-        net = concated
-        net_shape = net.get_shape()
-        net = tf.reshape(net, [BATCH_SIZE, int(net_shape[1]) * int(net_shape[2])])
-
-
-        layer_num = 1
-        for fully_connected_num in [64]:
-            net = layers.fc(net, fully_connected_num, name='temporal_FC{}'.format(layer_num),
-                            normalizer_fn=layers.batchNormalization, normalizer_params=bn_params,
-                            weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
-            layer_num += 1
-
-        self.logits = layers.fc(
-            net, self.dataset.num_classes, activation_fn=None,
-            weights_regularizer=layers.l2_regularizer(),
-            name='logits'
-        )
-
+        self.logits = net
         self.preds = layers.softmax(self.logits)
 
         self.loss = layers.reduce_mean(layers.softmax_cross_entropy(logits=self.logits, labels=self.Yoh))
         self.regularization_loss = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
         self.loss = tf.add_n([self.loss] + self.regularization_loss, name='total_loss')
+
         self.learning_rate = layers.decayLearningRate(self.starter_learning_rate, self.global_step, DECAY_STEPS, DECAY_RATE)
-        self.opt = layers.adam(self.learning_rate)
+
+        self.opt = layers.sgd(self.learning_rate)
         self.train_op = self.opt.minimize(self.loss, global_step=self.global_step)
 
         self.accuracy, self.precision, self.recall = self.createSummaries(self.Yoh, self.preds, self.loss, self.learning_rate, self.regularization_loss)
 
-    def vgg_loop(self, net, reuse=False):
+    def build_resnet_18(self, net, reuse=False):
 
-        with tf.variable_scope('vgg_loop', reuse=reuse):
+        bn_params = {'decay': 0.999, 'center': True, 'scale': True, 'epsilon': 0.001, 'updates_collections': None, 'is_training': self.is_training}
 
-            net = layers.conv2d(net, 64, name='conv1_1', reuse=reuse, weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
-            net = layers.conv2d(net, 64, name='conv1_2', reuse=reuse, weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
-            net = layers.max_pool2d(net, [2, 2], 2, name='pool1')
-            net = layers.conv2d(net, 128, name='conv2_1', reuse=reuse, weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
-            net = layers.conv2d(net, 128, name='conv2_2', reuse=reuse, weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
-            net = layers.max_pool2d(net, [2, 2], 2, name='pool2')
-            net = layers.conv2d(net, 256, name='conv3_1', reuse=reuse, weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
-            net = layers.conv2d(net, 256, name='conv3_2', reuse=reuse, weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
-            net = layers.conv2d(net, 256, name='conv3_3', reuse=reuse, weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
-            net = layers.max_pool2d(net, [2, 2], 2, name='pool3')
-            net = layers.conv2d(net, 512, name='conv4_1', reuse=reuse, weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
-            net = layers.conv2d(net, 512, name='conv4_2', reuse=reuse, weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
-            net = layers.conv2d(net, 512, name='conv4_3', reuse=reuse, weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
-            net = layers.max_pool2d(net, [2, 2], 2, name='pool4')
-            net = layers.conv2d(net, 512, name='conv5_1', reuse=reuse, weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
-            net = layers.conv2d(net, 512, name='conv5_2', reuse=reuse, weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
-            net = layers.conv2d(net, 512, name='conv5_3', reuse=reuse, weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
-            net = layers.max_pool2d(net, [2, 2], 2, name='pool5')
+        net = layers.conv2d(net, filters=64, kernel_size=7, stride=2, padding='SAME', name='resnet_conv1', reuse=reuse,
+                            weights_regularizer=self.regularizer)
+        # , normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+        net = layers.max_pool2d(net, kernel_size=3, stride=2, padding='same')
+
+        net = self.res_block_first(net, 64, 3, reuse=reuse, name='resnet_conv2a')
+        net = self.res_block(net, 64, 3, reuse=reuse, name='resnet_conv2b')
+
+        net = self.res_block_first(net, 128, 3, reuse=reuse, name='resnet_conv3a')
+        net = self.res_block(net, 128, 3,reuse=reuse, name='resnet_conv3b')
+
+        net = self.res_block_first(net, 256, 3, reuse=reuse,name='resnet_conv4a')
+        net = self.res_block(net, 256, 3, reuse=reuse, name='resnet_conv4b')
+
+        net = self.res_block_first(net, 512, 3, reuse=reuse, name='resnet_conv5a')
+        net = self.res_block(net, 512, 3, reuse=reuse, name='resnet_conv5b')
+
+        net = layers.avg_pool2d(net, kernel_size=7, stride=2)
 
         return net
+
+    def res_block(self, net, filters=64, kernel=3, name='resnet_convX', reuse=False):
+
+        # bn_params = {'decay': 0.999, 'center': True, 'scale': True, 'epsilon': 0.001, 'updates_collections': None,
+        #              'is_training': self.is_training}
+
+        tmp_logits = net
+        net = layers.conv2d(net, filters=filters, kernel_size=kernel, stride=1, padding='same', name=name + '_1', reuse=reuse,
+                            weights_regularizer=self.regularizer, activation_fn=None)
+        # , normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+        net = layers.relu(net)
+
+        net = layers.conv2d(net, filters=filters, kernel_size=kernel, stride=1, padding='same', name=name + '_2', reuse=reuse, activation_fn=None,
+                            weights_regularizer=self.regularizer)
+        # , normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+
+        net = layers.add(net, tmp_logits)
+        net = layers.relu(net)
+
+        return net
+
+    def res_block_first(self, net, filters=64, kernel=3, stride=1, reuse=False, name='resnet_convX'):
+
+        bn_params = {'decay': 0.999, 'center': True, 'scale': True, 'epsilon': 0.001, 'updates_collections': None,
+                     'is_training': self.is_training}
+
+        tmp_logits = layers.conv2d(net, filters=filters, kernel_size=kernel, stride=stride, padding='same', activation_fn=None, name=name + '_shortcut', reuse=reuse,
+                                   weights_regularizer=self.regularizer)
+        # , normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+
+        net = layers.conv2d(net, filters=filters, kernel_size=kernel, stride=stride, padding='same', name=name + '_1', reuse=reuse,
+                            weights_regularizer=self.regularizer, normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+
+        net = layers.conv2d(net, filters=filters, kernel_size=kernel, stride=stride, padding='same', name=name + '_2', reuse=reuse, activation_fn=None,
+                            weights_regularizer=self.regularizer)
+        # , normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+
+        net = layers.add(net, tmp_logits)
+        net = layers.relu(net)
+
+        return net
+
+    def previewData(self):
+
+        print("PREVIEWING DATA")
+
+        feed_dict = {self.is_training: True, self.dataset_type: 'train'}
+        eval_tensors = [self.previewImages, self.previewLabels]
+
+        x, y = self.sess.run(eval_tensors, feed_dict)
+
+        # USE DEBUGER HERE WITH BREAKPOINT TO MANUALLY EVALUATE IMAGES
+        util.draw_image(x[0], 0)
 
     def train(self):
 
@@ -188,6 +218,9 @@ class VGG16:
         self.plot_data['lr'] += [lr]
 
         util.plot_training_progress(self.plot_data, self.dataset.name, self.name)
+
+        if self.dataset.name == 'lrw':
+            self.test()
 
     def validate(self, num_examples, epoch, dataset_type="train"):
 
@@ -270,7 +303,7 @@ class VGG16:
     def initConfig(self):
 
         print("INITIALIZING CONFIGURATION VARIABLES")
-        self.name = 'vgg16'
+        self.name = 'resnet18'
         self.starter_learning_rate = LEARNING_RATE
         self.checkpoint_dir = config.config['checkpoint_root_dir'] # direktorij gdje se nalazi checkpoint
         self.summary_dir = config.config['summary_root_dir']
@@ -353,5 +386,6 @@ class VGG16:
         if os.path.exists(os.path.join(self.checkpoint_dir, self.name + '.ckpt.meta')):
             self.saver.restore(self.sess, os.path.join(self.checkpoint_dir, self.dataset.name, self.name + '.ckpt'))
 
-model = VGG16()
+model = ResNet18()
 model.train()
+# model.previewData()

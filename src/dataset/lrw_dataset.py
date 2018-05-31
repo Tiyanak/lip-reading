@@ -3,6 +3,7 @@ import math
 import tensorflow as tf
 import numpy as np
 from src.utils import util
+from src.cnn import layers
 
 DATASET_DIR = 'D:/faks/diplomski/lip-reading/data/tfrecords/lrw_tfrecords'
 INPUT_SHAPE = [29, 112, 112, 3]
@@ -33,6 +34,14 @@ class LrwDataset():
         train_images, train_labels = self.input_decoder(train_file_queue, 'train')
         valid_images, valid_labels = self.input_decoder(valid_file_queue, 'val')
         test_images, test_labels = self.input_decoder(test_file_queue, 'test')
+
+        train_images = layers.convertImageType(train_images)
+        valid_images = layers.convertImageType(valid_images)
+        test_images = layers.convertImageType(test_images)
+
+        train_images = layers.imagesStandardization(train_images)
+        valid_images = layers.imagesStandardization(valid_images)
+        test_images = layers.imagesStandardization(test_images)
 
         if is_training:
             self.train_images, self.train_labels = tf.train.shuffle_batch(

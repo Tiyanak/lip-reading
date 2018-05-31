@@ -1,5 +1,5 @@
 from src.utils import util
-import config
+from src import config
 from src.cnn import layers
 import tensorflow as tf
 import time
@@ -7,15 +7,15 @@ import os
 import numpy as np
 from src.dataset import lrw_dataset, mnist_original_dataset, road_dataset, mnist_dataset, cifar_dataset
 
-DATASET_TO_USE = 'lrw'
+DATASET_TO_USE = 'cifar'
 LOG_EVERY = 200 if DATASET_TO_USE == 'road' else 1000
-SAVE_EVERY = 0.2
+SAVE_EVERY = 0.5
 DECAY_STEPS = 10000 # broj koraka za smanjivanje stope ucenja
 DECAY_RATE = 0.96 # rate smanjivanja stope ucenja
 REGULARIZER_SCALE = 0.1 # faktor regularizacije
 LEARNING_RATE = 5e-4
-BATCH_SIZE = 20
-MAX_EPOCHS = 10
+BATCH_SIZE = 10
+MAX_EPOCHS = 30
 
 class MT_3:
 
@@ -52,6 +52,8 @@ class MT_3:
             self.X = tf.cast(self.dataset.train_images, dtype=tf.float32)
             self.Yoh = layers.toOneHot(self.dataset.train_labels, self.dataset.num_classes)
 
+        self.regularizer = layers.l2_regularizer(REGULARIZER_SCALE)
+
         reuse = None
         towersLogits = []
         for sequence_image in range(self.dataset.frames):
@@ -64,36 +66,42 @@ class MT_3:
 
         net = layers.transpose(net, [1, 0, 2, 3, 4])
 
-        bn_params = {'decay': 0.999, 'center': True, 'scale': True, 'epsilon': 0.001,
-                       'updates_collections': None, 'is_training': self.is_training}
+        # bn_params = {'decay': 0.999, 'center': True, 'scale': True, 'epsilon': 0.001,
+        #                'updates_collections': None, 'is_training': self.is_training}
 
-        net = layers.conv3d(net, 256, kernel_size=3, stride=2, padding='valid', name='conv2', weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
-                            normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
-        net = layers.max_pool3d(net, 3, 2, name='pool2')
+        conv3d_kernel =3
+        max3d_pool_kernel = 2
+        if DATASET_TO_USE == 'cifar':
+            conv3d_kernel = [1, 3, 3]
+            max3d_pool_kernel = [1, 2, 2]
 
-        net = layers.conv3d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv3', weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
-                            normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+        net = layers.conv3d(net, 256, kernel_size=conv3d_kernel, stride=2, padding='valid', name='conv2', weights_regularizer=self.regularizer)
+                            # normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+        net = layers.max_pool3d(net, max3d_pool_kernel, 2, name='pool2')
 
-        net = layers.conv3d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv4', weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
-                            normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+        net = layers.conv3d(net, filters=512, kernel_size=conv3d_kernel, padding='SAME', stride=1, name='conv3', weights_regularizer=self.regularizer)
+                            # normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+
+        net = layers.conv3d(net, filters=512, kernel_size=conv3d_kernel, padding='SAME', stride=1, name='conv4', weights_regularizer=self.regularizer)
+                            # normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
 
         net = layers.transpose(net, [0, 2, 3, 1, 4])
         net = layers.reshape(net, [-1, net.shape[1], net.shape[2], net.shape[3] * net.shape[4]])
 
-        net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv5', weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
-                            normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+        net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv5', weights_regularizer=self.regularizer)
+                            # normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
         net = layers.max_pool2d(net, 3, 2, padding='VALID', name='max_pool5')
 
         net = layers.flatten(net, name='flatten')
 
-        net = layers.fc(net, 4096, name='fc6', weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
-                        normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+        net = layers.fc(net, 4096, name='fc6', weights_regularizer=self.regularizer)
+                        # normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
 
-        net = layers.fc(net, 4096, name='fc7', weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
-                        normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+        net = layers.fc(net, 4096, name='fc7', weights_regularizer=self.regularizer)
+                        # normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
 
         net = layers.fc(net, self.dataset.num_classes, activation_fn=None, name='fc8',
-                        weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
+                        weights_regularizer=self.regularizer)
 
         self.logits = net
         self.preds = layers.softmax(self.logits)
@@ -109,13 +117,13 @@ class MT_3:
 
     def mt3_loop(self, net, reuse=False):
 
-        bn_params = {'decay': 0.999, 'center': True, 'scale': True, 'epsilon': 0.001, 'updates_collections': None, 'is_training': self.is_training}
+        # bn_params = {'decay': 0.999, 'center': True, 'scale': True, 'epsilon': 0.001, 'updates_collections': None, 'is_training': self.is_training}
 
         with tf.variable_scope('mt_loop', reuse=reuse):
 
             net = layers.conv2d(net, 48, kernel_size=3, name='conv1', reuse=reuse, stride=2, padding='valid',
-                                activation_fn=layers.relu, weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
-                                weights_initializer=layers.xavier_initializer(), normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+                                weights_regularizer=self.regularizer)
+                                # normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
             net = layers.max_pool2d(net, 3, 2, name='pool1')
 
         return net

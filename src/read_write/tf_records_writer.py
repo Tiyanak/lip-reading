@@ -4,7 +4,7 @@ import numpy as np
 from random import shuffle
 from src.read_write.lrw_reader import LRWReader
 from src.utils import util
-import config
+from src import config
 from src.imaging.image_resize import ImageResizer
 from src.read_write.mnist_reader import MnistReader
 from src.read_write.cifar_reader import CifarReader

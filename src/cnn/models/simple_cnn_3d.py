@@ -1,5 +1,5 @@
 from src.utils import util
-import config
+from src import config
 from src.cnn import layers
 import tensorflow as tf
 import time
@@ -7,7 +7,7 @@ import os
 import numpy as np
 from src.dataset import lrw_dataset, mnist_original_dataset, road_dataset, mnist_dataset, cifar_dataset
 
-DATASET_TO_USE = 'cifar'
+DATASET_TO_USE = 'lrw'
 LOG_EVERY = 200 if DATASET_TO_USE == 'road' else 1000
 SAVE_EVERY = 0.2
 DECAY_STEPS = 10000 # broj koraka za smanjivanje stope ucenja
@@ -56,13 +56,13 @@ class SimpleCNN3D():
         self.previewImages = self.X
         net = self.X
 
-        net = layers.conv3d(net, filters=32, kernel_size=[1, 3, 3], padding='VALID', stride=1, name='conv1')
+        net = layers.conv3d(net, filters=32, kernel_size=[2, 3, 3], padding='VALID', stride=1, name='conv1')
         net = layers.max_pool3d(net, [1, 2, 2], 2, name='max_pool1')
 
-        net = layers.conv3d(net, filters=64, kernel_size=[1, 3, 3], padding='VALID', stride=1, name='conv2')
+        net = layers.conv3d(net, filters=64, kernel_size=[2, 3, 3], padding='VALID', stride=1, name='conv2')
         net = layers.max_pool3d(net, [1, 2, 2], 2, name='max_pool2')
 
-        net = layers.conv3d(net, filters=128, kernel_size=[1, 3, 3], padding='VALID', stride=1, name='conv3')
+        net = layers.conv3d(net, filters=128, kernel_size=[2, 3, 3], padding='VALID', stride=1, name='conv3')
         net = layers.max_pool3d(net, [1, 2, 2], 2, name='max_pool2')
 
         net = layers.flatten(net, name='flatten')

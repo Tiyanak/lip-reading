@@ -3,6 +3,7 @@ import math
 import tensorflow as tf
 import numpy as np
 from src.utils import util
+from src.cnn import layers
 
 DATASET_DIR = 'E:/workspace/relic-diplomski/data/he_ftts_irap_intersection_lines_350_140_tagged'
 INPUT_SHAPE = [25, 140, 350, 3]
@@ -12,87 +13,113 @@ class RoadDataset():
 
     def __init__(self, is_training=True, batch_size=20):
 
-        self.batch_size = batch_size
-        self._initConfig()
+        with tf.device("/CPU:0"):
+
+            self.batch_size = batch_size
+            self._initConfig()
+
+            if ADD_GEOLOCATIONS:
+                shapes = [INPUT_SHAPE, [], [2]]
+            else:
+                shapes = [INPUT_SHAPE, []]
+
+            self.contains_geolocations = ADD_GEOLOCATIONS
+
+            self.train_dir = os.path.join(DATASET_DIR, 'train')
+            self.valid_dir = os.path.join(DATASET_DIR, 'validate')
+            self.test_dir = os.path.join(DATASET_DIR, 'test')
+
+            self.train_tfrecords_dirs = [tfrecords_dir for tfrecords_dir in os.listdir(self.train_dir)]
+            self.train_tfrecords = [
+                os.path.join(self.train_dir, train_tfrecords_dir, train_tfrecords_dir + '_sequential.tfrecords')
+                for train_tfrecords_dir in self.train_tfrecords_dirs]
+
+            self.valid_tfrecords_dirs = [tfrecords_dir for tfrecords_dir in os.listdir(self.valid_dir)]
+            self.valid_tfrecords = [
+                os.path.join(self.valid_dir, valid_tfrecords_dir, valid_tfrecords_dir + '_sequential.tfrecords')
+                for valid_tfrecords_dir in self.valid_tfrecords_dirs]
+
+            self.test_tfrecords_dirs = [tfrecords_dir for tfrecords_dir in os.listdir(self.test_dir)]
+            self.test_tfrecords = [
+                os.path.join(self.test_dir, test_tfrecords_dir, test_tfrecords_dir + '_sequential.tfrecords')
+                for test_tfrecords_dir in self.test_tfrecords_dirs]
+
+            self.num_train_examples = self.number_of_examples(self.train_tfrecords_dirs, self.train_dir)
+            self.num_valid_examples = self.number_of_examples(self.valid_tfrecords_dirs, self.valid_dir)
+            self.num_test_examples = self.number_of_examples(self.test_tfrecords_dirs, self.test_dir)
+
+            self.num_batches_train = self.num_train_examples // self.batch_size
+            self.num_batches_valid = self.num_valid_examples // self.batch_size
+            self.num_batches_test = self.num_test_examples // self.batch_size
+
+            train_file_queue = tf.train.string_input_producer(self.train_tfrecords, capacity=len(self.train_tfrecords))
+            valid_file_queue = tf.train.string_input_producer(self.valid_tfrecords, capacity=len(self.valid_tfrecords))
+            test_file_queue = tf.train.string_input_producer(self.test_tfrecords, capacity=len(self.test_tfrecords))
 
         if ADD_GEOLOCATIONS:
-            shapes = [INPUT_SHAPE, [], [2]]
-        else:
-            shapes = [INPUT_SHAPE, []]
 
-        self.contains_geolocations = ADD_GEOLOCATIONS
+            with tf.device("/CPU:0"):
+                train_images, train_labels, train_geolocations = self.input_decoder(train_file_queue)
+                test_images, test_labels, test_geolocations = self.input_decoder(test_file_queue)
+                valid_images, valid_labels, valid_geolocations = self.input_decoder(valid_file_queue)
 
-        self.train_dir = os.path.join(DATASET_DIR, 'train')
-        self.valid_dir = os.path.join(DATASET_DIR, 'validate')
-        self.test_dir = os.path.join(DATASET_DIR, 'test')
+            with tf.device("/GPU:0"):
+                train_images = layers.convertImageType(train_images)
+                valid_images = layers.convertImageType(valid_images)
+                test_images = layers.convertImageType(test_images)
 
-        self.train_tfrecords_dirs = [tfrecords_dir for tfrecords_dir in os.listdir(self.train_dir)]
-        self.train_tfrecords = [
-            os.path.join(self.train_dir, train_tfrecords_dir, train_tfrecords_dir + '_sequential.tfrecords')
-            for train_tfrecords_dir in self.train_tfrecords_dirs]
+                train_images = layers.imagesStandardization(train_images)
+                valid_images = layers.imagesStandardization(valid_images)
+                test_images = layers.imagesStandardization(test_images)
 
-        self.valid_tfrecords_dirs = [tfrecords_dir for tfrecords_dir in os.listdir(self.valid_dir)]
-        self.valid_tfrecords = [
-            os.path.join(self.valid_dir, valid_tfrecords_dir, valid_tfrecords_dir + '_sequential.tfrecords')
-            for valid_tfrecords_dir in self.valid_tfrecords_dirs]
+            with tf.device("/CPU:0"):
 
-        self.test_tfrecords_dirs = [tfrecords_dir for tfrecords_dir in os.listdir(self.test_dir)]
-        self.test_tfrecords = [
-            os.path.join(self.test_dir, test_tfrecords_dir, test_tfrecords_dir + '_sequential.tfrecords')
-            for test_tfrecords_dir in self.test_tfrecords_dirs]
+                if is_training:
+                    self.train_images, self.train_labels, self.train_geolocations = tf.train.shuffle_batch(
+                        [train_images, train_labels, train_geolocations], batch_size=self.batch_size, shapes=shapes,
+                        capacity=100, min_after_dequeue=50)
+                else:
+                    self.train_images, self.train_labels, self.train_geolocations = tf.train.batch(
+                        [train_images, train_labels, train_geolocations], batch_size=self.batch_size, shapes=shapes)
 
-        self.num_train_examples = self.number_of_examples(self.train_tfrecords_dirs, self.train_dir)
-        self.num_valid_examples = self.number_of_examples(self.valid_tfrecords_dirs, self.valid_dir)
-        self.num_test_examples = self.number_of_examples(self.test_tfrecords_dirs, self.test_dir)
+                self.valid_images, self.valid_labels, self.valid_geolocations = tf.train.batch(
+                    [valid_images, valid_labels, valid_geolocations], batch_size=self.batch_size, shapes=shapes)
 
-        self.num_batches_train = self.num_train_examples // self.batch_size
-        self.num_batches_valid = self.num_valid_examples // self.batch_size
-        self.num_batches_test = self.num_test_examples // self.batch_size
-
-        train_file_queue = tf.train.string_input_producer(self.train_tfrecords, capacity=len(self.train_tfrecords))
-        valid_file_queue = tf.train.string_input_producer(self.valid_tfrecords, capacity=len(self.valid_tfrecords))
-        test_file_queue = tf.train.string_input_producer(self.test_tfrecords, capacity=len(self.test_tfrecords))
-
-        if ADD_GEOLOCATIONS:
-
-            train_images, train_labels, train_geolocations = self.input_decoder(train_file_queue)
-            test_images, test_labels, test_geolocations = self.input_decoder(test_file_queue)
-            valid_images, valid_labels, valid_geolocations = self.input_decoder(valid_file_queue)
-
-            if is_training:
-                self.train_images, self.train_labels, self.train_geolocations = tf.train.shuffle_batch(
-                    [train_images, train_labels, train_geolocations], batch_size=self.batch_size, shapes=shapes,
-                    capacity=100, min_after_dequeue=50)
-            else:
-                self.train_images, self.train_labels, self.train_geolocations = tf.train.batch(
-                    [train_images, train_labels, train_geolocations], batch_size=self.batch_size, shapes=shapes)
-
-            self.valid_images, self.valid_labels, self.valid_geolocations = tf.train.batch(
-                [valid_images, valid_labels, valid_geolocations], batch_size=self.batch_size, shapes=shapes)
-
-            self.test_images, self.test_labels, self.test_geolocations = tf.train.batch(
-                [test_images, test_labels, test_geolocations], batch_size=self.batch_size, shapes=shapes)
+                self.test_images, self.test_labels, self.test_geolocations = tf.train.batch(
+                    [test_images, test_labels, test_geolocations], batch_size=self.batch_size, shapes=shapes)
 
 
         else:
 
-            train_images, train_labels = self.input_decoder(train_file_queue)
-            valid_images, valid_labels = self.input_decoder(valid_file_queue)
-            test_images, test_labels = self.input_decoder(test_file_queue)
+            with tf.device("/CPU:0"):
+                train_images, train_labels = self.input_decoder(train_file_queue)
+                valid_images, valid_labels = self.input_decoder(valid_file_queue)
+                test_images, test_labels = self.input_decoder(test_file_queue)
 
-            if is_training:
-                self.train_images, self.train_labels = tf.train.shuffle_batch(
-                    [train_images, train_labels], batch_size=self.batch_size, shapes=shapes, capacity=100,
-                    min_after_dequeue=50)
-            else:
-                self.train_images, self.train_labels = tf.train.batch(
-                    [train_images, train_labels], batch_size=self.batch_size, shapes=shapes)
+            with tf.device("/GPU:0"):
+                train_images = layers.convertImageType(train_images)
+                valid_images = layers.convertImageType(valid_images)
+                test_images = layers.convertImageType(test_images)
 
-            self.valid_images, self.valid_labels = tf.train.batch(
-                [valid_images, valid_labels], batch_size=self.batch_size, shapes=shapes)
+                train_images = layers.imagesStandardization(train_images)
+                valid_images = layers.imagesStandardization(valid_images)
+                test_images = layers.imagesStandardization(test_images)
 
-            self.test_images, self.test_labels = tf.train.batch(
-                [test_images, test_labels], batch_size=self.batch_size, shapes=shapes)
+            with tf.device("/CPU:0"):
+
+                if is_training:
+                    self.train_images, self.train_labels = tf.train.shuffle_batch(
+                        [train_images, train_labels], batch_size=self.batch_size, shapes=shapes, capacity=100,
+                        min_after_dequeue=50)
+                else:
+                    self.train_images, self.train_labels = tf.train.batch(
+                        [train_images, train_labels], batch_size=self.batch_size, shapes=shapes)
+
+                self.valid_images, self.valid_labels = tf.train.batch(
+                    [valid_images, valid_labels], batch_size=self.batch_size, shapes=shapes)
+
+                self.test_images, self.test_labels = tf.train.batch(
+                    [test_images, test_labels], batch_size=self.batch_size, shapes=shapes)
 
     def _initConfig(self):
 

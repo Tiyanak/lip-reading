@@ -1,20 +1,21 @@
 from src.utils import util
-import config
+from src import config
 from src.cnn import layers
 import tensorflow as tf
 import time
 import os
 import numpy as np
 from src.dataset import lrw_dataset, mnist_original_dataset, road_dataset, mnist_dataset, cifar_dataset
+slim = tf.contrib.slim
 
-DATASET_TO_USE = 'cifar'
-LOG_EVERY = 200 if DATASET_TO_USE == 'road' else 1000
+DATASET_TO_USE = 'lrw'
+LOG_EVERY = 1000
 SAVE_EVERY = 0.2
 DECAY_STEPS = 10000 # broj koraka za smanjivanje stope ucenja
 DECAY_RATE = 0.96 # rate smanjivanja stope ucenja
 REGULARIZER_SCALE = 0.1 # faktor regularizacije
-LEARNING_RATE = 5e-4
-BATCH_SIZE = 20
+LEARNING_RATE = 1e-4
+BATCH_SIZE = 10
 MAX_EPOCHS = 10
 
 class SimpleCNN():
@@ -24,12 +25,10 @@ class SimpleCNN():
         self.initConfig() # postavi globalne varijable
         self.createPlotDataVars() # kreiraj mapu za zapisivanje metrike (pdf + csv)
         self.initDataReaders() # postavi dataset (reader za tfrecordse)
-        with tf.device("/GPU:0"):
-            self.createModel() # kreiraj duboki model (tensorski graf)
+        self.createModel() # kreiraj duboki model (tensorski graf)
+        self.initSummaries()
         self.createSession() # kreiraj saver i session bez inicijalizacije varijabli
-        self.initSummaries() # kreiraj summarije
-        self.initSessionVariables() # inicijaliziraj sve varijable u grafu
-        self.createRestorer() # vrati zadnji checkpoint u slucaju da postoji
+        self.addGraphToSummaries()
 
     def createModel(self):
 
@@ -63,19 +62,29 @@ class SimpleCNN():
             net = tf.reshape(net, [-1, net.shape[1], net.shape[2], net.shape[3] * net.shape[4]])
             self.previewImages = net
 
-        net = layers.conv2d(net, filters=32, kernel_size=3, padding='VALID', stride=1, name='conv1')
-        net = layers.max_pool2d(net, 2, 2, name='max_pool1')
+        bn_params = {'decay': 0.999, 'center': True, 'scale': True, 'epsilon': 0.001,
+                     'updates_collections': None, 'is_training': self.is_training}
 
-        net = layers.conv2d(net, filters=64, kernel_size=3, padding='VALID', stride=1, name='conv2')
-        net = layers.max_pool2d(net, 2, 2, name='max_pool2')
+        net = layers.conv2d(net, filters=96, kernel_size=3, padding='VALID', stride=2, name='conv1',
+                            normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+        net = layers.max_pool2d(net, 3, 2, name='max_pool1')
 
-        net = layers.conv2d(net, filters=128, kernel_size=3, padding='VALID', stride=1, name='conv3')
-        net = layers.max_pool2d(net, 2, 2, name='max_pool2')
+        net = layers.conv2d(net, filters=256, kernel_size=3, padding='VALID', stride=2, name='conv2',
+                            normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+        net = layers.max_pool2d(net, 3, 2, name='max_pool2')
+
+        net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv3',
+                            normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+
+        net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv4')
+
+        net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv5')
+        net = layers.max_pool2d(net, 3, 2, name='max_pool2')
 
         net = layers.flatten(net, name='flatten')
 
-        net = layers.fc(net, 512, name='fc6')
-        net = layers.fc(net, 128, name='fc7')
+        net = layers.fc(net, 4096, name='fc6')
+        net = layers.fc(net, 4096, name='fc7')
         net = layers.fc(net, self.dataset.num_classes, activation_fn=None, name='fc8')
 
         self.logits = net
@@ -83,12 +92,12 @@ class SimpleCNN():
 
         self.loss = layers.reduce_mean(layers.softmax_cross_entropy(logits=self.logits, labels=self.Yoh))
 
-        self.learning_rate = layers.decayLearningRate(self.starter_learning_rate, self.global_step, DECAY_STEPS, DECAY_RATE)
-
-        self.accuracy, self.precision, self.recall = self.createSummaries(self.Yoh, self.preds, self.loss, self.learning_rate)
+        self.learning_rate = layers.decayLearningRate(LEARNING_RATE, self.global_step, DECAY_STEPS, DECAY_RATE)
 
         self.opt = layers.adam(self.learning_rate)
         self.train_op = self.opt.minimize(self.loss, global_step=self.global_step)
+
+        self.accuracy, self.precision, self.recall = self.createSummaries(self.Yoh, self.preds, self.loss, self.learning_rate)
 
     def previewData(self):
 
@@ -132,7 +141,7 @@ class SimpleCNN():
                 util.log_step(epoch_num, step, duration, loss_val, BATCH_SIZE, self.dataset.num_train_examples, LOG_EVERY)
 
                 if (step / self.dataset.num_batches_train) >= (currentSaveRate):
-                    self.saver.save(self.sess, os.path.join(self.checkpoint_dir, self.dataset.name, self.name + '.ckpt'))
+                    self.saver.save(self.sess, self.ckptPrefix)
                     currentSaveRate += SAVE_EVERY
 
             epoch_time = time.time() - epoch_start_time
@@ -162,9 +171,6 @@ class SimpleCNN():
         self.plot_data['lr'] += [lr]
 
         util.plot_training_progress(self.plot_data, self.dataset.name, self.name)
-
-        if self.dataset.name == 'lrw':
-            self.test()
 
     def validate(self, num_examples, epoch, dataset_type="train"):
 
@@ -248,7 +254,6 @@ class SimpleCNN():
 
         print("INITIALIZING CONFIGURATION VARIABLES")
         self.name = 'simple_cnn'
-        self.starter_learning_rate = LEARNING_RATE
         self.checkpoint_dir = config.config['checkpoint_root_dir'] # direktorij gdje se nalazi checkpoint
         self.summary_dir = config.config['summary_root_dir']
 
@@ -275,42 +280,57 @@ class SimpleCNN():
         testSummaryDir = os.path.join(self.summary_dir, self.dataset.name, self.name, 'test')
 
         self.merged_summary_op = tf.summary.merge_all()
-        self.summary_train_train_writer = tf.summary.FileWriter(trainSummaryDir, self.sess.graph)
-        self.summary_valid_train_writer = tf.summary.FileWriter(trainEvalSummaryDir, self.sess.graph)
-        self.summary_valid_valid_writer = tf.summary.FileWriter(valEvalSummaryDir, self.sess.graph)
-        self.summary_test_writer = tf.summary.FileWriter(testSummaryDir, self.sess.graph)
+        self.summary_train_train_writer = tf.summary.FileWriter(trainSummaryDir)
+        self.summary_valid_train_writer = tf.summary.FileWriter(trainEvalSummaryDir)
+        self.summary_valid_valid_writer = tf.summary.FileWriter(valEvalSummaryDir)
+        self.summary_test_writer = tf.summary.FileWriter(testSummaryDir)
 
     def createSession(self):
 
         print('CREATING SESSION FOR: {} AND MODEL: {}'.format(self.dataset.name, self.name))
-        self.saver = tf.train.Saver()
+
+        self.ckptDir = os.path.join(self.checkpoint_dir, self.dataset.name)
+        self.ckptPrefix = os.path.join(self.ckptDir, self.name + ".ckpt")
+
+        globalVars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
+        ckpt_file = layers.latest_checkpoint(self.ckptDir, "checkpoint")
+        varsInCkpt, varsNotInCkpt = layers.scan_checkpoint_for_vars(ckpt_file, globalVars)
+
         gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.9, allow_growth=True)
         gpu_config = tf.ConfigProto(gpu_options=gpu_options, allow_soft_placement=True)
+
+        opsInCkpt = tf.report_uninitialized_variables(var_list=varsInCkpt)
+        opsNotInCkpt = tf.variables_initializer(varsNotInCkpt)
+
+        restorationSaver = tf.train.Saver(varsInCkpt)
+        self.saver = tf.train.Saver()
+
         self.sess = tf.Session(config=gpu_config)
         self.sess.as_default()
 
-    def initSessionVariables(self):
+        self.sess.run(opsInCkpt)
+        if tf.train.checkpoint_exists(ckpt_file):
+            self.restored = restorationSaver.restore(self.sess, ckpt_file)
 
-        print("INITIALIZING SESSION VARIABLES")
-        init_op = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
-        self.sess.run(init_op)
+        self.sess.run(tf.group(opsNotInCkpt, tf.local_variables_initializer()))
+
         self.coord = tf.train.Coordinator()
         self.threads = tf.train.start_queue_runners(sess=self.sess, coord=self.coord)
 
+
     def initDataReaders(self):
-        with tf.device("/CPU:0"):
-            if DATASET_TO_USE == 'lrw':
-                self.dataset = lrw_dataset.LrwDataset()
-            elif DATASET_TO_USE == 'road':
-                self.dataset = road_dataset.RoadDataset()
-            elif DATASET_TO_USE == 'mnist':
-                self.dataset = mnist_dataset.MnistDataset()
-            elif DATASET_TO_USE == 'mnist_original':
-                self.dataset = mnist_original_dataset.MnistOriginalDataset()
-            elif DATASET_TO_USE == 'cifar':
-                self.dataset = cifar_dataset.CifarDataset()
-            else:
-                print("NIJE ODABRAN DATASET!")
+        if DATASET_TO_USE == 'lrw':
+            self.dataset = lrw_dataset.LrwDataset()
+        elif DATASET_TO_USE == 'road':
+            self.dataset = road_dataset.RoadDataset()
+        elif DATASET_TO_USE == 'mnist':
+            self.dataset = mnist_dataset.MnistDataset()
+        elif DATASET_TO_USE == 'mnist_original':
+            self.dataset = mnist_original_dataset.MnistOriginalDataset()
+        elif DATASET_TO_USE == 'cifar':
+            self.dataset = cifar_dataset.CifarDataset()
+        else:
+            print("NIJE ODABRAN DATASET!")
 
     def finishTraining(self):
         self.coord.request_stop()
@@ -325,9 +345,13 @@ class SimpleCNN():
         }
         print("INITIALIZED PLOT DATA!")
 
-    def createRestorer(self):
-        if os.path.exists(os.path.join(self.checkpoint_dir, self.name + '.ckpt.meta')):
-            self.saver.restore(self.sess, os.path.join(self.checkpoint_dir, self.dataset.name, self.name + '.ckpt'))
+    def addGraphToSummaries(self):
+
+        self.summary_train_train_writer.add_graph(self.sess.graph)
+        self.summary_valid_train_writer.add_graph(self.sess.graph)
+        self.summary_valid_valid_writer.add_graph(self.sess.graph)
+        self.summary_test_writer.add_graph(self.sess.graph)
+
 
 model = SimpleCNN()
 model.train()

@@ -9,7 +9,7 @@ import sklearn as sk
 import operator
 
 from sklearn.metrics import confusion_matrix
-import config
+from src import config
 import pickle
 
 def shuffle_data(data_x, data_y):
@@ -162,7 +162,6 @@ def isDirOrFileExist(thePath):
     return os.path.exists(thePath)
 
 def createNecesseryDirs(dirKeys):
-
     for dirPath in dirKeys:
         create_dir(dirPath)
 

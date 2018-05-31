@@ -1,4 +1,4 @@
-import config
+from src import config
 import os
 
 class Logger():

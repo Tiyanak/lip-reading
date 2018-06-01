@@ -21,15 +21,13 @@ class ResNet18():
 
     def __init__(self):
 
-        self.initConfig() # postavi globalne varijable
-        self.createPlotDataVars() # kreiraj mapu za zapisivanje metrike (pdf + csv)
-        self.initDataReaders() # postavi dataset (reader za tfrecordse)
-        with tf.device("/GPU:0"):
-            self.createModel() # kreiraj duboki model (tensorski graf)
-        self.createSession() # kreiraj saver i session bez inicijalizacije varijabli
-        self.initSummaries() # kreiraj summarije
-        self.initSessionVariables() # inicijaliziraj sve varijable u grafu
-        self.createRestorer() # vrati zadnji checkpoint u slucaju da postoji
+        self.initConfig()  # postavi globalne varijable
+        self.createPlotDataVars()  # kreiraj mapu za zapisivanje metrike (pdf + csv)
+        self.initDataReaders()  # postavi dataset (reader za tfrecordse)
+        self.createModel()  # kreiraj duboki model (tensorski graf)
+        self.initSummaries()  # kreiraj summary writere
+        self.createSession()  # kreiraj saver i session bez inicijalizacije varijabli
+        self.addGraphToSummaries()  # u summary writere dodaj graf
 
     def createModel(self):
 
@@ -54,9 +52,6 @@ class ResNet18():
             self.X = tf.cast(self.dataset.train_images, dtype=tf.float32)
             self.Yoh = layers.toOneHot(self.dataset.train_labels, self.dataset.num_classes)
 
-        self.previewImages = self.X
-        self.previewLabels = self.Yoh
-
         net = self.X
 
         net = layers.transpose(net, [0, 2, 3, 1, 4])
@@ -73,12 +68,12 @@ class ResNet18():
         self.regularization_loss = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
         self.loss = tf.add_n([self.loss] + self.regularization_loss, name='total_loss')
 
-        self.learning_rate = layers.decayLearningRate(self.starter_learning_rate, self.global_step, DECAY_STEPS, DECAY_RATE)
+        self.learning_rate = layers.decayLearningRate(LEARNING_RATE, self.global_step, DECAY_STEPS, DECAY_RATE)
 
         self.opt = layers.sgd(self.learning_rate)
         self.train_op = self.opt.minimize(self.loss, global_step=self.global_step)
 
-        self.accuracy, self.precision, self.recall = self.createSummaries(self.Yoh, self.preds, self.loss, self.learning_rate, self.regularization_loss)
+        self.accuracy, self.precision, self.recall = self.createSummaries(self.Yoh, self.preds, self.loss, self.learning_rate)
 
     def build_resnet_18(self, net, reuse=False):
 
@@ -146,18 +141,6 @@ class ResNet18():
 
         return net
 
-    def previewData(self):
-
-        print("PREVIEWING DATA")
-
-        feed_dict = {self.is_training: True, self.dataset_type: 'train'}
-        eval_tensors = [self.previewImages, self.previewLabels]
-
-        x, y = self.sess.run(eval_tensors, feed_dict)
-
-        # USE DEBUGER HERE WITH BREAKPOINT TO MANUALLY EVALUATE IMAGES
-        util.draw_image(x[0], 0)
-
     def train(self):
 
         print("TRAINING IS STARTING RIGHT NOW!")
@@ -188,7 +171,7 @@ class ResNet18():
                 util.log_step(epoch_num, step, duration, loss_val, BATCH_SIZE, self.dataset.num_train_examples, LOG_EVERY)
 
                 if (step / self.dataset.num_batches_train) >= (currentSaveRate):
-                    self.saver.save(self.sess, os.path.join(self.checkpoint_dir, self.dataset.name, self.name + '.ckpt'))
+                    self.saver.save(self.sess, self.ckptPrefix)
                     currentSaveRate += SAVE_EVERY
 
             epoch_time = time.time() - epoch_start_time
@@ -218,9 +201,6 @@ class ResNet18():
         self.plot_data['lr'] += [lr]
 
         util.plot_training_progress(self.plot_data, self.dataset.name, self.name)
-
-        if self.dataset.name == 'lrw':
-            self.test()
 
     def validate(self, num_examples, epoch, dataset_type="train"):
 
@@ -304,11 +284,10 @@ class ResNet18():
 
         print("INITIALIZING CONFIGURATION VARIABLES")
         self.name = 'resnet18'
-        self.starter_learning_rate = LEARNING_RATE
         self.checkpoint_dir = config.config['checkpoint_root_dir'] # direktorij gdje se nalazi checkpoint
         self.summary_dir = config.config['summary_root_dir']
 
-    def createSummaries(self, labelsOH, predsOH, loss, learning_rate, regularization_loss):
+    def createSummaries(self, labelsOH, predsOH, loss, learning_rate):
 
         labels = layers.onehot_to_class(labelsOH)
         preds = layers.onehot_to_class(predsOH)
@@ -320,7 +299,6 @@ class ResNet18():
         tf.summary.scalar('accuracy', acc[1])
         tf.summary.scalar('precision', prec[1])
         tf.summary.scalar('recall', rec[1])
-        tf.summary.scalar('regularization_loss', regularization_loss[1])
 
         return acc, prec, rec
 
@@ -332,42 +310,54 @@ class ResNet18():
         testSummaryDir = os.path.join(self.summary_dir, self.dataset.name, self.name, 'test')
 
         self.merged_summary_op = tf.summary.merge_all()
-        self.summary_train_train_writer = tf.summary.FileWriter(trainSummaryDir, self.sess.graph)
-        self.summary_valid_train_writer = tf.summary.FileWriter(trainEvalSummaryDir, self.sess.graph)
-        self.summary_valid_valid_writer = tf.summary.FileWriter(valEvalSummaryDir, self.sess.graph)
-        self.summary_test_writer = tf.summary.FileWriter(testSummaryDir, self.sess.graph)
+        self.summary_train_train_writer = tf.summary.FileWriter(trainSummaryDir)
+        self.summary_valid_train_writer = tf.summary.FileWriter(trainEvalSummaryDir)
+        self.summary_valid_valid_writer = tf.summary.FileWriter(valEvalSummaryDir)
+        self.summary_test_writer = tf.summary.FileWriter(testSummaryDir)
 
     def createSession(self):
 
-        print('CREATING SESSION FOR: {} AND MODEL: {}'.format(self.dataset.name, self.name))
-        self.saver = tf.train.Saver()
+        self.ckptDir = os.path.join(self.checkpoint_dir, self.dataset.name, self.name)
+        self.ckptPrefix = os.path.join(self.ckptDir, self.name + ".ckpt")
+
+        globalVars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
+        ckpt_file = layers.latest_checkpoint(self.ckptDir, "checkpoint")
+        varsInCkpt, varsNotInCkpt = layers.scan_checkpoint_for_vars(ckpt_file, globalVars)
+
         gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.9, allow_growth=True)
         gpu_config = tf.ConfigProto(gpu_options=gpu_options, allow_soft_placement=True)
+
+        opsInCkpt = tf.report_uninitialized_variables(var_list=varsInCkpt)
+        opsNotInCkpt = tf.variables_initializer(varsNotInCkpt)
+
+        restorationSaver = tf.train.Saver(varsInCkpt)
+        self.saver = tf.train.Saver()
+
         self.sess = tf.Session(config=gpu_config)
         self.sess.as_default()
 
-    def initSessionVariables(self):
+        self.sess.run(opsInCkpt)
+        if tf.train.checkpoint_exists(ckpt_file):
+            self.restored = restorationSaver.restore(self.sess, ckpt_file)
 
-        print("INITIALIZING SESSION VARIABLES")
-        init_op = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
-        self.sess.run(init_op)
+        self.sess.run(tf.group(opsNotInCkpt, tf.local_variables_initializer()))
+
         self.coord = tf.train.Coordinator()
         self.threads = tf.train.start_queue_runners(sess=self.sess, coord=self.coord)
 
     def initDataReaders(self):
-        with tf.device("/CPU:0"):
-            if DATASET_TO_USE == 'lrw':
-                self.dataset = lrw_dataset.LrwDataset()
-            elif DATASET_TO_USE == 'road':
-                self.dataset = road_dataset.RoadDataset()
-            elif DATASET_TO_USE == 'mnist':
-                self.dataset = mnist_dataset.MnistDataset()
-            elif DATASET_TO_USE == 'mnist_original':
-                self.dataset = mnist_original_dataset.MnistOriginalDataset()
-            elif DATASET_TO_USE == 'cifar':
-                self.dataset = cifar_dataset.CifarDataset()
-            else:
-                print("NIJE ODABRAN DATASET!")
+        if DATASET_TO_USE == 'lrw':
+            self.dataset = lrw_dataset.LrwDataset()
+        elif DATASET_TO_USE == 'road':
+            self.dataset = road_dataset.RoadDataset()
+        elif DATASET_TO_USE == 'mnist':
+            self.dataset = mnist_dataset.MnistDataset()
+        elif DATASET_TO_USE == 'mnist_original':
+            self.dataset = mnist_original_dataset.MnistOriginalDataset()
+        elif DATASET_TO_USE == 'cifar':
+            self.dataset = cifar_dataset.CifarDataset()
+        else:
+            print("NIJE ODABRAN DATASET!")
 
     def finishTraining(self):
         self.coord.request_stop()
@@ -382,10 +372,11 @@ class ResNet18():
         }
         print("INITIALIZED PLOT DATA!")
 
-    def createRestorer(self):
-        if os.path.exists(os.path.join(self.checkpoint_dir, self.name + '.ckpt.meta')):
-            self.saver.restore(self.sess, os.path.join(self.checkpoint_dir, self.dataset.name, self.name + '.ckpt'))
+    def addGraphToSummaries(self):
+        self.summary_train_train_writer.add_graph(self.sess.graph)
+        self.summary_valid_train_writer.add_graph(self.sess.graph)
+        self.summary_valid_valid_writer.add_graph(self.sess.graph)
+        self.summary_test_writer.add_graph(self.sess.graph)
 
 model = ResNet18()
 model.train()
-# model.previewData()

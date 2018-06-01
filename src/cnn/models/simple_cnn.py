@@ -22,13 +22,13 @@ class SimpleCNN():
 
     def __init__(self):
 
-        self.initConfig() # postavi globalne varijable
-        self.createPlotDataVars() # kreiraj mapu za zapisivanje metrike (pdf + csv)
-        self.initDataReaders() # postavi dataset (reader za tfrecordse)
-        self.createModel() # kreiraj duboki model (tensorski graf)
-        self.initSummaries()
-        self.createSession() # kreiraj saver i session bez inicijalizacije varijabli
-        self.addGraphToSummaries()
+        self.initConfig()  # postavi globalne varijable
+        self.createPlotDataVars()  # kreiraj mapu za zapisivanje metrike (pdf + csv)
+        self.initDataReaders()  # postavi dataset (reader za tfrecordse)
+        self.createModel()  # kreiraj duboki model (tensorski graf)
+        self.initSummaries()  # kreiraj summary writere
+        self.createSession()  # kreiraj saver i session bez inicijalizacije varijabli
+        self.addGraphToSummaries()  # u summary writere dodaj graf
 
     def createModel(self):
 

@@ -25,9 +25,9 @@ class EF:
         self.createPlotDataVars()  # kreiraj mapu za zapisivanje metrike (pdf + csv)
         self.initDataReaders()  # postavi dataset (reader za tfrecordse)
         self.createModel()  # kreiraj duboki model (tensorski graf)
-        self.initSummaries()
+        self.initSummaries() # kreiraj summary writere
         self.createSession()  # kreiraj saver i session bez inicijalizacije varijabli
-        self.addGraphToSummaries()
+        self.addGraphToSummaries() # u summary writere dodaj graf
 
     def createModel(self):
 
@@ -174,9 +174,6 @@ class EF:
 
         util.plot_training_progress(self.plot_data, self.dataset.name, self.name)
 
-        if self.dataset.name == 'lrw':
-            self.test()
-
     def validate(self, num_examples, epoch, dataset_type="train"):
 
         losses = []
@@ -295,7 +292,7 @@ class EF:
         print('CREATING SESSION FOR: {} AND MODEL: {}'.format(self.dataset.name, self.name))
 
         self.ckptDir = os.path.join(self.checkpoint_dir, self.dataset.name, self.name)
-        self.ckptPrefix = os.path.join(self.ckptDir, self.name, self.name + ".ckpt")
+        self.ckptPrefix = os.path.join(self.ckptDir, self.name + ".ckpt")
 
         globalVars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
         ckpt_file = layers.latest_checkpoint(self.ckptDir, "checkpoint")

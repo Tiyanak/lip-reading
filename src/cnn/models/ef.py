@@ -9,12 +9,12 @@ from src.dataset import lrw_dataset, mnist_original_dataset, road_dataset, mnist
 
 DATASET_TO_USE = 'lrw'
 LOG_EVERY = 200 if DATASET_TO_USE == 'road' else 1000
-SAVE_EVERY = 0.2
+SAVE_EVERY = 0.1
 DECAY_STEPS = 10000 # broj koraka za smanjivanje stope ucenja
 DECAY_RATE = 0.96 # rate smanjivanja stope ucenja
-REGULARIZER_SCALE = 0.1 # faktor regularizacije
-LEARNING_RATE = 5e-4
-BATCH_SIZE = 20
+REGULARIZER_SCALE = 1e-4 # faktor regularizacije
+LEARNING_RATE = 1e-4
+BATCH_SIZE = 10
 MAX_EPOCHS = 10
 
 class EF:
@@ -65,31 +65,39 @@ class EF:
                      'updates_collections': None, 'is_training': self.is_training}
 
         net = layers.conv2d(net, filters=96, kernel_size=3, padding='VALID', stride=2, name='conv1',
-                            normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+                            normalizer_fn=layers.batchNormalization, normalizer_params=bn_params,
+                            weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
         net = layers.max_pool2d(net, 3, 2, name='max_pool1')
 
         net = layers.conv2d(net, filters=256, kernel_size=3, padding='VALID', stride=2, name='conv2',
-                            normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+                            normalizer_fn=layers.batchNormalization, normalizer_params=bn_params,
+                            weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
         net = layers.max_pool2d(net, 3, 2, name='max_pool2')
 
         net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv3',
-                            normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+                            normalizer_fn=layers.batchNormalization, normalizer_params=bn_params,
+                            weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
 
-        net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv4')
+        net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv4',
+                            weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
 
-        net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv5')
+        net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv5',
+                            weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
         net = layers.max_pool2d(net, 3, 2, name='max_pool2')
 
         net = layers.flatten(net, name='flatten')
 
-        net = layers.fc(net, 4096, name='fc6')
-        net = layers.fc(net, 4096, name='fc7')
-        net = layers.fc(net, self.dataset.num_classes, activation_fn=None, name='fc8')
+        net = layers.fc(net, 4096, name='fc6', weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
+        net = layers.fc(net, 4096, name='fc7', weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
+        net = layers.fc(net, self.dataset.num_classes, activation_fn=None, name='fc8', weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
 
         self.logits = net
         self.preds = layers.softmax(self.logits)
 
-        self.loss = layers.reduce_mean(layers.softmax_cross_entropy(logits=self.logits, labels=self.Yoh))
+        cross_entropy_loss = layers.reduce_mean(layers.softmax_cross_entropy(logits=self.logits, labels=self.Yoh))
+        regularization_loss = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
+
+        self.loss = cross_entropy_loss + REGULARIZER_SCALE * tf.reduce_sum(regularization_loss)
 
         self.learning_rate = layers.decayLearningRate(LEARNING_RATE, self.global_step, DECAY_STEPS, DECAY_RATE)
 
@@ -259,7 +267,7 @@ class EF:
         print("INITIALIZING CONFIGURATION VARIABLES")
         self.name = 'ef'
         self.checkpoint_dir = config.config['checkpoint_root_dir']  # direktorij gdje se nalazi checkpoint
-        self.summary_dir = config.config['summary_root_dir']
+        self.summary_dir = config.config['summary_root_dir'] # direktorij gdje se nalaze summariji
 
     def createSummaries(self, labelsOH, predsOH, loss, learning_rate):
 

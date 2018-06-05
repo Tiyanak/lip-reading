@@ -253,7 +253,7 @@ class EF_3():
         print("INITIALIZING CONFIGURATION VARIABLES")
         self.name = 'ef_3'
         self.checkpoint_dir = config.config['checkpoint_root_dir'] # direktorij gdje se nalazi checkpoint
-        self.summary_dir = config.config['summary_root_dir']
+        self.summary_dir = os.path.join(config.config['summary_root_dir'])
 
     def createSummaries(self, labelsOH, predsOH, loss, learning_rate):
 

@@ -317,30 +317,15 @@ class ResNet18():
 
     def createSession(self):
 
-        self.ckptDir = os.path.join(self.checkpoint_dir, self.dataset.name, self.name)
-        self.ckptPrefix = os.path.join(self.ckptDir, self.name + ".ckpt")
-
-        globalVars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
-        ckpt_file = layers.latest_checkpoint(self.ckptDir, "checkpoint")
-        varsInCkpt, varsNotInCkpt = layers.scan_checkpoint_for_vars(ckpt_file, globalVars)
+        print('CREATING SESSION FOR: {} AND MODEL: {}'.format(self.dataset.name, self.name))
 
         gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.9, allow_growth=True)
         gpu_config = tf.ConfigProto(gpu_options=gpu_options, allow_soft_placement=True)
 
-        opsInCkpt = tf.report_uninitialized_variables(var_list=varsInCkpt)
-        opsNotInCkpt = tf.variables_initializer(varsNotInCkpt)
-
-        restorationSaver = tf.train.Saver(varsInCkpt)
-        self.saver = tf.train.Saver()
-
         self.sess = tf.Session(config=gpu_config)
         self.sess.as_default()
 
-        self.sess.run(opsInCkpt)
-        if tf.train.checkpoint_exists(ckpt_file):
-            self.restored = restorationSaver.restore(self.sess, ckpt_file)
-
-        self.sess.run(tf.group(opsNotInCkpt, tf.local_variables_initializer()))
+        self.initializeOrRestore()
 
         self.coord = tf.train.Coordinator()
         self.threads = tf.train.start_queue_runners(sess=self.sess, coord=self.coord)
@@ -377,6 +362,25 @@ class ResNet18():
         self.summary_valid_train_writer.add_graph(self.sess.graph)
         self.summary_valid_valid_writer.add_graph(self.sess.graph)
         self.summary_test_writer.add_graph(self.sess.graph)
+
+    def initializeOrRestore(self):
+
+        self.ckptDir = os.path.join(self.checkpoint_dir, self.dataset.name, self.name)
+        self.ckptPrefix = os.path.join(self.ckptDir, self.name)
+        globalVars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
+        ckpt_file = layers.latest_checkpoint(self.ckptDir, "checkpoint")
+
+        if ckpt_file is not None and tf.train.checkpoint_exists(ckpt_file):
+            varsInCkpt, varsNotInCkpt = layers.scan_checkpoint_for_vars(ckpt_file, globalVars)
+            if len(varsInCkpt) != 0:
+                restorationSaver = tf.train.Saver(varsInCkpt)
+                self.sess.run(tf.report_uninitialized_variables(var_list=varsInCkpt))
+                restorationSaver.restore(self.sess, ckpt_file)
+        else:
+            varsNotInCkpt = globalVars
+
+        self.saver = tf.train.Saver()
+        self.sess.run(tf.group(tf.variables_initializer(varsNotInCkpt), tf.local_variables_initializer()))
 
 model = ResNet18()
 model.train()

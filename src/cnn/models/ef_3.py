@@ -7,14 +7,14 @@ import os
 import numpy as np
 from src.dataset import lrw_dataset, mnist_original_dataset, road_dataset, mnist_dataset, cifar_dataset
 
-DATASET_TO_USE = 'road'
+DATASET_TO_USE = 'lrw'
 LOG_EVERY = 200 if DATASET_TO_USE == 'road' else 1000
-SAVE_EVERY = 0.2
+SAVE_EVERY = 0.1
 DECAY_STEPS = 10000 # broj koraka za smanjivanje stope ucenja
 DECAY_RATE = 0.96 # rate smanjivanja stope ucenja
-REGULARIZER_SCALE = 0.1 # faktor regularizacije
-LEARNING_RATE = 1e-2
-BATCH_SIZE = 20
+REGULARIZER_SCALE = 1e-4 # faktor regularizacije
+LEARNING_RATE = 1e-4
+BATCH_SIZE = 10
 MAX_EPOCHS = 10
 
 class EF_3():
@@ -35,7 +35,6 @@ class EF_3():
 
         self.global_step = tf.Variable(0, trainable=False)
         self.is_training = tf.placeholder_with_default(True, [], name='is_training')
-
         self.dataset_type = tf.placeholder_with_default('train_train', [], name='dataset_type')
 
         dataset_val = tf.placeholder_with_default('val', [], name='dataset_val')
@@ -54,53 +53,52 @@ class EF_3():
         net = self.X
 
         conv3d_kernel = [3, 3, 3]
-        max3d_pool_kernel = [2, 2, 2]
+        max3d_pool_kernel = [3, 3, 2]
         if DATASET_TO_USE == 'cifar':
             conv3d_kernel = [1, 3, 3]
             max3d_pool_kernel = [1, 2, 2]
 
-        # bn_params = {'decay': 0.999, 'center': True, 'scale': True, 'epsilon': 0.001,
-        #              'updates_collections': None, 'is_training': self.is_training}
-
-        regularizer = layers.l2_regularizer(REGULARIZER_SCALE)
-
-        net = layers.conv3d(net, filters=48, kernel_size=conv3d_kernel, padding='VALID', stride=2, name='conv1',
-                            weights_regularizer=regularizer)
-                            # , normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
-        net = layers.max_pool3d(net, max3d_pool_kernel, 2, padding='VALID', name='max_pool1')
-
-        net = layers.conv3d(net, filters=256, kernel_size=conv3d_kernel, padding='SAME', stride=2, name='conv2',
-                            weights_regularizer=regularizer)
-                            # , normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
-        net = layers.max_pool3d(net, max3d_pool_kernel, 2, padding='VALID', name='max_pool2')
+        bn_params = {'decay': 0.999, 'center': True, 'scale': True, 'epsilon': 0.001,
+                     'updates_collections': None, 'is_training': self.is_training}
 
         net = layers.transpose(net, [0, 2, 3, 1, 4])
+
+        net = layers.conv3d(net, filters=48, kernel_size=conv3d_kernel, padding='VALID', stride=2, name='conv1',
+                            normalizer_fn=layers.batchNormalization, normalizer_params=bn_params,
+                            weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
+        net = layers.max_pool3d(net, max3d_pool_kernel, 2, padding='VALID', name='max_pool1')
+
+        net = layers.conv3d(net, filters=256, kernel_size=conv3d_kernel, padding='VALID', stride=2, name='conv2',
+                            normalizer_fn=layers.batchNormalization, normalizer_params=bn_params,
+                            weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
+        net = layers.max_pool3d(net, max3d_pool_kernel, 2, padding='VALID', name='max_pool2')
+
         net = layers.reshape(net, [-1, net.shape[1], net.shape[2], net.shape[3] * net.shape[4]])
 
         net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv3',
-                            weights_regularizer=regularizer)
+                            normalizer_fn=layers.batchNormalization, normalizer_params=bn_params,
+                            weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
 
         net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv4',
-                            weights_regularizer=regularizer)
+                            weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
 
         net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv5',
-                            weights_regularizer=regularizer)
-        net = layers.max_pool2d(net, 2, 1, padding='VALID', name='max_pool5')
+                            weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
+        net = layers.max_pool2d(net, 3, 1, padding='VALID', name='max_pool5')
 
         net = layers.flatten(net, name='flatten')
 
-        net = layers.fc(net, 4096, name='fc6', weights_regularizer=regularizer)
-                        # normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
-        net = layers.fc(net, 4096, name='fc7', weights_regularizer=regularizer)
-                        # normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
-        net = layers.fc(net, self.dataset.num_classes, activation_fn=None, name='fc8', weights_regularizer=regularizer)
+        net = layers.fc(net, 4096, name='fc6', weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
+        net = layers.fc(net, 4096, name='fc7', weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
+        net = layers.fc(net, self.dataset.num_classes, activation_fn=None, name='fc8', weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
 
         self.logits = net
         self.preds = layers.softmax(self.logits)
 
-        self.loss = layers.reduce_mean(layers.softmax_cross_entropy(logits=self.logits, labels=self.Yoh))
-        self.regularization_loss = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
-        self.loss = tf.add_n([self.loss] + self.regularization_loss, name='total_loss')
+        cross_entropy_loss = layers.reduce_mean(layers.softmax_cross_entropy(logits=self.logits, labels=self.Yoh))
+        regularization_loss = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
+
+        self.loss = cross_entropy_loss + REGULARIZER_SCALE * tf.reduce_sum(regularization_loss)
 
         self.learning_rate = layers.decayLearningRate(LEARNING_RATE, self.global_step, DECAY_STEPS, DECAY_RATE)
 
@@ -176,6 +174,8 @@ class EF_3():
         preds = np.ndarray((0,), dtype=np.int64)
         labels = np.ndarray((0,), dtype=np.int64)
         num_batches = num_examples // BATCH_SIZE
+        if num_examples > 100000:
+            num_batches = num_batches // 10
 
         for step in range(num_batches):
 
@@ -285,30 +285,13 @@ class EF_3():
 
     def createSession(self):
 
-        self.ckptDir = os.path.join(self.checkpoint_dir, self.dataset.name, self.name)
-        self.ckptPrefix = os.path.join(self.ckptDir, self.name + ".ckpt")
-
-        globalVars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
-        ckpt_file = layers.latest_checkpoint(self.ckptDir, "checkpoint")
-        varsInCkpt, varsNotInCkpt = layers.scan_checkpoint_for_vars(ckpt_file, globalVars)
-
         gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.9, allow_growth=True)
         gpu_config = tf.ConfigProto(gpu_options=gpu_options, allow_soft_placement=True)
-
-        opsInCkpt = tf.report_uninitialized_variables(var_list=varsInCkpt)
-        opsNotInCkpt = tf.variables_initializer(varsNotInCkpt)
-
-        restorationSaver = tf.train.Saver(varsInCkpt)
-        self.saver = tf.train.Saver()
 
         self.sess = tf.Session(config=gpu_config)
         self.sess.as_default()
 
-        self.sess.run(opsInCkpt)
-        if tf.train.checkpoint_exists(ckpt_file):
-            self.restored = restorationSaver.restore(self.sess, ckpt_file)
-
-        self.sess.run(tf.group(opsNotInCkpt, tf.local_variables_initializer()))
+        self.initializeOrRestore()
 
         self.coord = tf.train.Coordinator()
         self.threads = tf.train.start_queue_runners(sess=self.sess, coord=self.coord)
@@ -345,6 +328,26 @@ class EF_3():
         self.summary_valid_train_writer.add_graph(self.sess.graph)
         self.summary_valid_valid_writer.add_graph(self.sess.graph)
         self.summary_test_writer.add_graph(self.sess.graph)
+
+    def initializeOrRestore(self):
+
+        self.ckptDir = os.path.join(self.checkpoint_dir, self.dataset.name, self.name)
+        self.ckptPrefix = os.path.join(self.ckptDir, self.name)
+        globalVars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
+        ckpt_file = layers.latest_checkpoint(self.ckptDir, "checkpoint")
+
+        if ckpt_file is not None and tf.train.checkpoint_exists(ckpt_file):
+            varsInCkpt, varsNotInCkpt = layers.scan_checkpoint_for_vars(ckpt_file, globalVars)
+            if len(varsInCkpt) != 0:
+                restorationSaver = tf.train.Saver(varsInCkpt)
+                self.sess.run(tf.report_uninitialized_variables(var_list=varsInCkpt))
+                restorationSaver.restore(self.sess, ckpt_file)
+        else:
+            varsNotInCkpt = globalVars
+
+        # INITIALIZE ALL UNINITALIZED VARS (THOSE NOT IN CKPT)
+        self.saver = tf.train.Saver()
+        self.sess.run(tf.group(tf.variables_initializer(varsNotInCkpt), tf.local_variables_initializer()))
 
 
 model = EF_3()

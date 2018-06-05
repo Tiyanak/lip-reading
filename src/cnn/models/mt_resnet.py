@@ -8,13 +8,13 @@ import numpy as np
 from src.dataset import lrw_dataset, mnist_original_dataset, road_dataset, mnist_dataset, cifar_dataset
 
 DATASET_TO_USE = 'lrw'
-LOG_EVERY = 1
-SAVE_EVERY = 0.2
+LOG_EVERY = 200
+SAVE_EVERY = 0.1
 DECAY_STEPS = 10000 # broj koraka za smanjivanje stope ucenja
 DECAY_RATE = 0.96 # rate smanjivanja stope ucenja
-REGULARIZER_SCALE = 0.1 # faktor regularizacije
-LEARNING_RATE = 5e-4
-BATCH_SIZE = 1
+REGULARIZER_SCALE = 1e-4 # faktor regularizacije
+LEARNING_RATE = 1e-4
+BATCH_SIZE = 10
 MAX_EPOCHS = 10
 
 class MT_ResNet:
@@ -24,12 +24,10 @@ class MT_ResNet:
         self.initConfig() # postavi globalne varijable
         self.createPlotDataVars() # kreiraj mapu za zapisivanje metrike (pdf + csv)
         self.initDataReaders() # postavi dataset (reader za tfrecordse)
-        with tf.device("/GPU:0"):
-            self.createModel() # kreiraj duboki model (tensorski graf)
-        self.createSession() # kreiraj saver i session bez inicijalizacije varijabli
-        self.initSummaries() # kreiraj summarije
-        self.initSessionVariables() # inicijaliziraj sve varijable u grafu
-        self.createRestorer() # vrati zadnji checkpoint u slucaju da postoji
+        self.createModel() # kreiraj duboki model (tensorski graf)
+        self.initSummaries() # kreiraj summari writere
+        self.createSession() # kreiraj session, restoraj i inizijaliziraj varijable
+        self.addGraphToSummaries() # dodaj graf u summarije
 
     def createModel(self):
 
@@ -69,41 +67,44 @@ class MT_ResNet:
                        'updates_collections': None, 'is_training': self.is_training}
 
         net = layers.conv2d(net, 256, kernel_size=3, stride=2, padding='valid', name='conv2',
-                            weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE), normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+                            weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
+                            normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
         net = layers.max_pool2d(net, 3, 2, name='pool2')
 
         net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv3',
-                            weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE), normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+                            weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
+                            normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
 
         net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv4',
-                            weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE), normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+                            weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
+                            normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
 
         net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv5',
-                            weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE), normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+                            weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
         net = layers.max_pool2d(net, 3, 2, padding='VALID', name='max_pool5')
 
         net = layers.flatten(net, name='flatten')
 
-        net = layers.fc(net, 4096, name='fc6', weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
-                        normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
-
-        net = layers.fc(net, 4096, name='fc7', weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
-                        normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
-
+        net = layers.fc(net, 4096, name='fc6', weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
+        net = layers.fc(net, 4096, name='fc7', weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
         net = layers.fc(net, self.dataset.num_classes, activation_fn=None, name='fc8',
                         weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
 
         self.logits = net
         self.preds = layers.softmax(self.logits)
 
-        self.loss = layers.reduce_mean(layers.softmax_cross_entropy(logits=self.logits, labels=self.Yoh))
-        self.regularization_loss = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
-        self.loss = tf.add_n([self.loss] + self.regularization_loss, name='total_loss')
+        cross_entropy_loss = layers.reduce_mean(layers.softmax_cross_entropy(logits=self.logits, labels=self.Yoh))
+        regularization_loss = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
+
+        self.loss = cross_entropy_loss + REGULARIZER_SCALE * tf.reduce_sum(regularization_loss)
+
         self.learning_rate = layers.decayLearningRate(LEARNING_RATE, self.global_step, DECAY_STEPS, DECAY_RATE)
-        self.opt = layers.adam(self.learning_rate)
+
+        self.opt = layers.sgd(self.learning_rate)
         self.train_op = self.opt.minimize(self.loss, global_step=self.global_step)
 
-        self.accuracy, self.precision, self.recall = self.createSummaries(self.Yoh, self.preds, self.loss, self.learning_rate)
+        self.accuracy, self.precision, self.recall = self.createSummaries(self.Yoh, self.preds, self.loss,
+                                                                          self.learning_rate)
 
     def mt3_loop(self, net, reuse=False):
 
@@ -117,7 +118,8 @@ class MT_ResNet:
         bn_params = {'decay': 0.999, 'center': True, 'scale': True, 'epsilon': 0.001, 'updates_collections': None, 'is_training': self.is_training}
 
         net = layers.conv2d(net, filters=64, kernel_size=7, stride=2, padding='SAME', name='resnet_conv1', reuse=reuse,
-                            weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE), normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+                            weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
+                            normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
         net = layers.max_pool2d(net, kernel_size=3, stride=2, padding='same')
 
         net = self.res_block(net, 64, 3, reuse=reuse, name='resnet_conv2a')
@@ -143,10 +145,13 @@ class MT_ResNet:
 
         tmp_logits = net
         net = layers.conv2d(net, filters=filters, kernel_size=kernel, stride=1, padding='same', name=name + '_1', reuse=reuse,
-                            weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE), normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+                            weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
+                            normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
 
-        net = layers.conv2d(net, filters=filters, kernel_size=kernel, stride=1, padding='same', name=name + '_2', reuse=reuse, activation_fn=None,
-                            weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE), normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+        net = layers.conv2d(net, filters=filters, kernel_size=kernel, stride=1, padding='same', name=name + '_2',
+                            reuse=reuse, activation_fn=None,
+                            weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
+                            normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
         net = layers.add(net, tmp_logits)
         net = layers.relu(net)
 
@@ -157,14 +162,19 @@ class MT_ResNet:
         bn_params = {'decay': 0.999, 'center': True, 'scale': True, 'epsilon': 0.001, 'updates_collections': None,
                      'is_training': self.is_training}
 
-        tmp_logits = layers.conv2d(net, filters=filters, kernel_size=kernel, stride=stride, padding='same', activation_fn=None, name=name + '_shortcut', reuse=reuse,
-                                   weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE), normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+        tmp_logits = layers.conv2d(net, filters=filters, kernel_size=kernel, stride=stride, padding='same',
+                                   activation_fn=None, name=name + '_shortcut', reuse=reuse,
+                                   weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
+                                   normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
 
-        net = layers.conv2d(net, filters=filters, kernel_size=kernel, stride=stride, padding='same', name=name + '_1', reuse=reuse,
-                            weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE), normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+        net = layers.conv2d(net, filters=filters, kernel_size=kernel, stride=stride, padding='same', name=name + '_1',
+                            reuse=reuse, weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
+                            normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
 
-        net = layers.conv2d(net, filters=filters, kernel_size=kernel, stride=stride, padding='same', name=name + '_2', reuse=reuse, activation_fn=None,
-                            weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE), normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+        net = layers.conv2d(net, filters=filters, kernel_size=kernel, stride=stride, padding='same', name=name + '_2',
+                            reuse=reuse, activation_fn=None,
+                            weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
+                            normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
 
         net = layers.add(net, tmp_logits)
         net = layers.relu(net)
@@ -238,6 +248,8 @@ class MT_ResNet:
         preds = np.ndarray((0,), dtype=np.int64)
         labels = np.ndarray((0,), dtype=np.int64)
         num_batches = num_examples // BATCH_SIZE
+        if num_examples > 100000:
+            num_batches = num_batches // 10
 
         for step in range(num_batches):
 
@@ -347,30 +359,15 @@ class MT_ResNet:
 
     def createSession(self):
 
-        self.ckptDir = os.path.join(self.checkpoint_dir, self.dataset.name, self.name)
-        self.ckptPrefix = os.path.join(self.ckptDir, self.name + ".ckpt")
-
-        globalVars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
-        ckpt_file = layers.latest_checkpoint(self.ckptDir, "checkpoint")
-        varsInCkpt, varsNotInCkpt = layers.scan_checkpoint_for_vars(ckpt_file, globalVars)
+        print('CREATING SESSION FOR: {} AND MODEL: {}'.format(self.dataset.name, self.name))
 
         gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.9, allow_growth=True)
         gpu_config = tf.ConfigProto(gpu_options=gpu_options, allow_soft_placement=True)
 
-        opsInCkpt = tf.report_uninitialized_variables(var_list=varsInCkpt)
-        opsNotInCkpt = tf.variables_initializer(varsNotInCkpt)
-
-        restorationSaver = tf.train.Saver(varsInCkpt)
-        self.saver = tf.train.Saver()
-
         self.sess = tf.Session(config=gpu_config)
         self.sess.as_default()
 
-        self.sess.run(opsInCkpt)
-        if tf.train.checkpoint_exists(ckpt_file):
-            self.restored = restorationSaver.restore(self.sess, ckpt_file)
-
-        self.sess.run(tf.group(opsNotInCkpt, tf.local_variables_initializer()))
+        self.initializeOrRestore()
 
         self.coord = tf.train.Coordinator()
         self.threads = tf.train.start_queue_runners(sess=self.sess, coord=self.coord)
@@ -407,6 +404,25 @@ class MT_ResNet:
         self.summary_valid_train_writer.add_graph(self.sess.graph)
         self.summary_valid_valid_writer.add_graph(self.sess.graph)
         self.summary_test_writer.add_graph(self.sess.graph)
+
+    def initializeOrRestore(self):
+
+        self.ckptDir = os.path.join(self.checkpoint_dir, self.dataset.name, self.name)
+        self.ckptPrefix = os.path.join(self.ckptDir, self.name)
+        globalVars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
+        ckpt_file = layers.latest_checkpoint(self.ckptDir, "checkpoint")
+
+        if ckpt_file is not None and tf.train.checkpoint_exists(ckpt_file):
+            varsInCkpt, varsNotInCkpt = layers.scan_checkpoint_for_vars(ckpt_file, globalVars)
+            if len(varsInCkpt) != 0:
+                restorationSaver = tf.train.Saver(varsInCkpt)
+                self.sess.run(tf.report_uninitialized_variables(var_list=varsInCkpt))
+                restorationSaver.restore(self.sess, ckpt_file)
+        else:
+            varsNotInCkpt = globalVars
+
+        self.saver = tf.train.Saver()
+        self.sess.run(tf.group(tf.variables_initializer(varsNotInCkpt), tf.local_variables_initializer()))
 
 model = MT_ResNet()
 model.train()

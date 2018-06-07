@@ -12,10 +12,11 @@ LOG_EVERY = 200 if DATASET_TO_USE == 'road' else 1000
 SAVE_EVERY = 0.1
 DECAY_STEPS = 10000 # broj koraka za smanjivanje stope ucenja
 DECAY_RATE = 0.96 # rate smanjivanja stope ucenja
-REGULARIZER_SCALE = 1e-4 # faktor regularizacije
+REGULARIZER_SCALE = 1e-3 # faktor regularizacije
 LEARNING_RATE = 1e-4
 BATCH_SIZE = 10
 MAX_EPOCHS = 10
+USE_SE = True
 
 class EF_3():
 
@@ -68,10 +69,16 @@ class EF_3():
                             weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
         net = layers.max_pool3d(net, max3d_pool_kernel, 2, padding='VALID', name='max_pool1')
 
+        if USE_SE:
+            net = layers.squeeze_and_excite3d(net, indexHeight=1, indexWidth=2, indexSeq=3, name='se1', filters=48)
+
         net = layers.conv3d(net, filters=256, kernel_size=conv3d_kernel, padding='VALID', stride=2, name='conv2',
                             normalizer_fn=layers.batchNormalization, normalizer_params=bn_params,
                             weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
         net = layers.max_pool3d(net, max3d_pool_kernel, 2, padding='VALID', name='max_pool2')
+
+        if USE_SE:
+            net = layers.squeeze_and_excite3d(net, indexHeight=1, indexWidth=2, indexSeq=3, name='se2', filters=256)
 
         net = layers.reshape(net, [-1, net.shape[1], net.shape[2], net.shape[3] * net.shape[4]])
 
@@ -79,12 +86,21 @@ class EF_3():
                             normalizer_fn=layers.batchNormalization, normalizer_params=bn_params,
                             weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
 
+        if USE_SE:
+            net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se3', filters=512)
+
         net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv4',
                             weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
+
+        if USE_SE:
+            net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se4', filters=512)
 
         net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv5',
                             weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
         net = layers.max_pool2d(net, 3, 1, padding='VALID', name='max_pool5')
+
+        if USE_SE:
+            net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se5', filters=512)
 
         net = layers.flatten(net, name='flatten')
 
@@ -298,15 +314,15 @@ class EF_3():
 
     def initDataReaders(self):
         if DATASET_TO_USE == 'lrw':
-            self.dataset = lrw_dataset.LrwDataset()
+            self.dataset = lrw_dataset.LrwDataset(batch_size=BATCH_SIZE)
         elif DATASET_TO_USE == 'road':
-            self.dataset = road_dataset.RoadDataset()
+            self.dataset = road_dataset.RoadDataset(batch_size=BATCH_SIZE)
         elif DATASET_TO_USE == 'mnist':
-            self.dataset = mnist_dataset.MnistDataset()
+            self.dataset = mnist_dataset.MnistDataset(batch_size=BATCH_SIZE)
         elif DATASET_TO_USE == 'mnist_original':
-            self.dataset = mnist_original_dataset.MnistOriginalDataset()
+            self.dataset = mnist_original_dataset.MnistOriginalDataset(batch_size=BATCH_SIZE)
         elif DATASET_TO_USE == 'cifar':
-            self.dataset = cifar_dataset.CifarDataset()
+            self.dataset = cifar_dataset.CifarDataset(batch_size=BATCH_SIZE)
         else:
             print("NIJE ODABRAN DATASET!")
 

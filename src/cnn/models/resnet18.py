@@ -332,15 +332,15 @@ class ResNet18():
 
     def initDataReaders(self):
         if DATASET_TO_USE == 'lrw':
-            self.dataset = lrw_dataset.LrwDataset()
+            self.dataset = lrw_dataset.LrwDataset(BATCH_SIZE)
         elif DATASET_TO_USE == 'road':
-            self.dataset = road_dataset.RoadDataset()
+            self.dataset = road_dataset.RoadDataset(BATCH_SIZE)
         elif DATASET_TO_USE == 'mnist':
-            self.dataset = mnist_dataset.MnistDataset()
+            self.dataset = mnist_dataset.MnistDataset(BATCH_SIZE)
         elif DATASET_TO_USE == 'mnist_original':
-            self.dataset = mnist_original_dataset.MnistOriginalDataset()
+            self.dataset = mnist_original_dataset.MnistOriginalDataset(BATCH_SIZE)
         elif DATASET_TO_USE == 'cifar':
-            self.dataset = cifar_dataset.CifarDataset()
+            self.dataset = cifar_dataset.CifarDataset(BATCH_SIZE)
         else:
             print("NIJE ODABRAN DATASET!")
 

@@ -174,13 +174,26 @@ def lrn (input):
     return tf.nn.local_response_normalization(input)
 
 # SQUEEZE AND EXCITE
-def squeeze_and_excite(input, filters=16, scope='se', name='se'):
+def squeeze_and_excite2d(input, indexHeight, indexWidth, name, filters=16):
 
-    filters2 = (int) (filters / config.config['se_r'])
-    filters1 = filters
+    filters1 = (int) (filters / 16)
+    filters2 = filters
 
-    se = avg_pool2d(input, name='se_avg_pool')
-    se = fc(se, filters1, activation_fn=relu, name='se_fc_' + name + '_1')
-    se = fc(se, filters2, activation_fn=sigmoid, name='se_fc_' + name + '_2')
+    se = avg_pool2d(input, kernel_size=[input.shape[indexHeight], input.shape[indexWidth]], name=name + 'avgpool')
+    se = fc(se, filters1, activation_fn=relu, name=name + 'fc1')
+    se = fc(se, filters2, activation_fn=sigmoid, name=name + 'fc2')
+    se = tf.multiply(input, se)
+
+    return se
+
+def squeeze_and_excite3d(input, indexHeight, indexWidth, indexSeq, name, filters=16):
+
+    filters1 = (int) (filters / 16)
+    filters2 = filters
+
+    se = avg_pool3d(input, kernel_size=[input.shape[indexHeight], input.shape[indexWidth], input.shape[indexSeq]], name=name + 'avgpool')
+    se = fc(se, filters1, activation_fn=relu, name=name + 'fc1')
+    se = fc(se, filters2, activation_fn=sigmoid, name=name + 'fc2')
+    se = tf.multiply(input, se)
 
     return se

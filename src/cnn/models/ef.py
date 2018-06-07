@@ -16,7 +16,6 @@ REGULARIZER_SCALE = 1e-4 # faktor regularizacije
 LEARNING_RATE = 1e-4
 BATCH_SIZE = 10
 MAX_EPOCHS = 10
-USE_SE = True
 
 class EF:
 
@@ -53,6 +52,7 @@ class EF:
 
         self.previewLabels = self.Yoh
         net = self.X
+        self.previewImages = net
 
         if net.shape[-1] > 1:
             net = layers.rgb_to_grayscale(net)
@@ -60,7 +60,6 @@ class EF:
         if len(net.shape) > 4:
             net = tf.transpose(net, [0, 2, 3, 1, 4])
             net = tf.reshape(net, [-1, net.shape[1], net.shape[2], net.shape[3] * net.shape[4]])
-            self.previewImages = net
 
         bn_params = {'decay': 0.999, 'center': True, 'scale': True, 'epsilon': 0.001,
                      'updates_collections': None, 'is_training': self.is_training}
@@ -69,37 +68,27 @@ class EF:
                             normalizer_fn=layers.batchNormalization, normalizer_params=bn_params,
                             weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
         net = layers.max_pool2d(net, 3, 2, name='max_pool1')
-
-        if USE_SE:
-            net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se1', filters=96)
+        net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se1', filters=96)
 
         net = layers.conv2d(net, filters=256, kernel_size=3, padding='VALID', stride=2, name='conv2',
                             normalizer_fn=layers.batchNormalization, normalizer_params=bn_params,
                             weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
         net = layers.max_pool2d(net, 3, 2, name='max_pool2')
-
-        if USE_SE:
-            net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se2', filters=256)
+        net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se2', filters=256)
 
         net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv3',
                             normalizer_fn=layers.batchNormalization, normalizer_params=bn_params,
                             weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
-
-        if USE_SE:
-            net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se3', filters=512)
+        net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se3', filters=512)
 
         net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv4',
                             weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
-
-        if USE_SE:
-            net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se4', filters=512)
+        net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se4', filters=512)
 
         net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv5',
                             weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
         net = layers.max_pool2d(net, 3, 2, name='max_pool2')
-
-        if USE_SE:
-            net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se5', filters=512)
+        net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se5', filters=512)
 
         net = layers.flatten(net, name='flatten')
 
@@ -112,11 +101,9 @@ class EF:
 
         cross_entropy_loss = layers.reduce_mean(layers.softmax_cross_entropy(logits=self.logits, labels=self.Yoh))
         regularization_loss = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
-
         self.loss = cross_entropy_loss + REGULARIZER_SCALE * tf.reduce_sum(regularization_loss)
 
         self.learning_rate = layers.decayLearningRate(LEARNING_RATE, self.global_step, DECAY_STEPS, DECAY_RATE)
-
         self.opt = layers.adam(self.learning_rate)
         self.train_op = self.opt.minimize(self.loss, global_step=self.global_step)
 
@@ -133,7 +120,11 @@ class EF:
         x, y = self.sess.run(eval_tensors, feed_dict)
 
         # USE DEBUGER HERE WITH BREAKPOINT TO MANUALLY EVALUATE IMAGES
-        util.draw_image(x[0], 0)
+        row1 = x[0][:9]
+        row2 = x[0][9:18]
+        row3 = x[0][18:27]
+        result = np.hstack((row1, row2, row3))
+        util.draw_image(result, 0)
 
     def train(self):
 

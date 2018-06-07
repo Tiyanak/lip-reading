@@ -16,7 +16,6 @@ REGULARIZER_SCALE = 1e-4 # faktor regularizacije
 LEARNING_RATE = 1e-4
 BATCH_SIZE = 10
 MAX_EPOCHS = 10
-USE_SE = True
 
 class MT:
 
@@ -70,37 +69,27 @@ class MT:
         net = layers.conv2d(net, 96, kernel_size=1, name='conv1d', padding='valid',
                             normalizer_fn=layers.batchNormalization, normalizer_params=bn_params,
                             weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
-
-        if USE_SE:
-            net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se1d', filters=96)
+        net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se1d', filters=96)
 
         net = layers.conv2d(net, 256, kernel_size=3, stride=2, padding='valid', name='conv2',
                             normalizer_fn=layers.batchNormalization, normalizer_params=bn_params,
                             weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
         net = layers.max_pool2d(net, 3, 2, name='pool2')
-
-        if USE_SE:
-            net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se2', filters=256)
+        net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se2', filters=256)
 
         net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv3',
                             normalizer_fn=layers.batchNormalization, normalizer_params=bn_params,
                             weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
-
-        if USE_SE:
-            net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se3', filters=512)
+        net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se3', filters=512)
 
         net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv4',
                             weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
-
-        if USE_SE:
-            net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se4', filters=512)
+        net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se4', filters=512)
 
         net = layers.conv2d(net, filters=512, kernel_size=[3, 3], padding='SAME', stride=1, name='conv5',
                             weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
         net = layers.max_pool2d(net, [3, 3], 2, padding='VALID', name='max_pool5')
-
-        if USE_SE:
-            net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se5', filters=512)
+        net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se5', filters=512)
 
         net = layers.flatten(net, name='flatten')
 
@@ -134,9 +123,7 @@ class MT:
                                 normalizer_fn=layers.batchNormalization, normalizer_params=bn_params,
                                 weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
             net = layers.max_pool2d(net, 3, 2, name='pool1')
-
-            if USE_SE:
-                net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se1', filters=48)
+            net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se1', filters=48, reuse=reuse)
 
         return net
 

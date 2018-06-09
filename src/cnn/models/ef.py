@@ -35,8 +35,8 @@ class EF:
 
         self.global_step = tf.Variable(0, trainable=False)
         self.is_training = tf.placeholder_with_default(True, [], name='is_training')
+        self.dataset_type = tf.placeholder(dtype=tf.string, name='dataset_type')
 
-        self.dataset_type = tf.placeholder_with_default('train_train', [], name='dataset_type')
         dataset_val = tf.placeholder_with_default('val', [], name='dataset_val')
         dataset_test = tf.placeholder_with_default('test', [], name='dataset_test')
 
@@ -51,8 +51,8 @@ class EF:
             self.Yoh = layers.toOneHot(self.dataset.train_labels, self.dataset.num_classes)
 
         self.previewLabels = self.Yoh
+        self.previewImages = self.X
         net = self.X
-        self.previewImages = net
 
         if net.shape[-1] > 1:
             net = layers.rgb_to_grayscale(net)
@@ -374,4 +374,6 @@ class EF:
 
 model = EF()
 model.train()
+# model.validate(25000, 1, 'val')
+# model.test()
 # model.previewData()

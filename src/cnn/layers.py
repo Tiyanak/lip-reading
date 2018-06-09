@@ -1,7 +1,6 @@
 import tensorflow as tf
 import tensorflow.contrib.layers as contrib_layers
-import numpy as np
-from src import config
+import tensorflow.contrib as contrib
 from tensorflow.contrib.framework.python.framework import checkpoint_utils
 slim = tf.contrib.slim
 
@@ -75,8 +74,8 @@ def scan_checkpoint_for_vars(checkpoint_path, vars_to_check):
     vars_not_in_checkpoint = [x for x in vars_to_check if x.name[:x.name.index(":")] not in check_var_set]
     return vars_in_checkpoint, vars_not_in_checkpoint
 
-def latest_checkpoint(ckpt_dir, ckpt_prefix):
-    return tf.train.latest_checkpoint(ckpt_dir, ckpt_prefix)
+def latest_checkpoint(ckpt_dir, latestFilename=None):
+    return tf.train.latest_checkpoint(ckpt_dir, latest_filename=latestFilename)
 
 ### OPTIMIZATORI ###
 def adam(learningRate):
@@ -90,7 +89,6 @@ def adagrad(learningRate):
 
 def adadelta(learningRate):
     return tf.train.AdadeltaOptimizer(learningRate)
-tf.train.Optimizer
 
 ### INITIALIZATORI ###
 def xavier_initializer():
@@ -195,3 +193,6 @@ def squeeze_and_excite3d(input, indexHeight, indexWidth, indexSeq, name, filters
     se = tf.multiply(input, se)
 
     return se
+
+def HashTable(keys, values):
+    return contrib.lookup.HashTable(contrib.lookup.KeyValueTensorInitializer(keys, values), -1)

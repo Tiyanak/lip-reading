@@ -12,8 +12,8 @@ LOG_EVERY = 200 if DATASET_TO_USE == 'road' else 1000
 SAVE_EVERY = 0.1
 DECAY_STEPS = 10000 # broj koraka za smanjivanje stope ucenja
 DECAY_RATE = 0.96 # rate smanjivanja stope ucenja
-REGULARIZER_SCALE = 1e-3 # faktor regularizacije
-LEARNING_RATE = 1e-4
+REGULARIZER_SCALE = 2e-3 # faktor regularizacije
+LEARNING_RATE = 5e-5
 BATCH_SIZE = 10
 MAX_EPOCHS = 10
 

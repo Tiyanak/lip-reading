@@ -17,6 +17,7 @@ REGULARIZER_SCALE = 0.1 # faktor regularizacije
 LEARNING_RATE = 1e-4
 BATCH_SIZE = 10
 MAX_EPOCHS = 10
+DATASET_INDEX_MAP = {'train' : 0, 'val' : 1, 'test' : 2}
 
 class SimpleCNN():
 
@@ -36,22 +37,28 @@ class SimpleCNN():
 
         self.global_step = tf.Variable(0, trainable=False)
         self.is_training = tf.placeholder_with_default(True, [], name='is_training')
+        self.imagesType = tf.placeholder_with_default(0, [], name='images_type')
+        self.labelsType = tf.placeholder_with_default(0, [], name='labels_type')
 
-        self.dataset_type = tf.placeholder_with_default('train_train', [], name='dataset_type')
-        dataset_val = tf.placeholder_with_default('val', [], name='dataset_val')
-        dataset_test = tf.placeholder_with_default('test', [], name='dataset_test')
+        # dataset_val = tf.placeholder_with_default('val', [], name='dataset_val')
+        # dataset_test = tf.placeholder_with_default('test', [], name='dataset_test')
 
-        if dataset_val.__eq__(self.dataset_type):
-            self.X = tf.cast(self.dataset.valid_images, dtype=tf.float32)
-            self.Yoh = layers.toOneHot(self.dataset.valid_labels, self.dataset.num_classes)
-        elif dataset_test.__eq__(self.dataset_type):
-            self.X = tf.cast(self.dataset.test_images, dtype=tf.float32)
-            self.Yoh = layers.toOneHot(self.dataset.test_labels, self.dataset.num_classes)
-        else:
-            self.X = tf.cast(self.dataset.train_images, dtype=tf.float32)
-            self.Yoh = layers.toOneHot(self.dataset.train_labels, self.dataset.num_classes)
+        # if dataset_val.__eq__(self.dataset_type):
+        #     self.X = tf.cast(self.dataset.valid_images, dtype=tf.float32)
+        #     self.Yoh = layers.toOneHot(self.dataset.valid_labels, self.dataset.num_classes)
+        # elif dataset_test.__eq__(self.dataset_type):
+        #     self.X = tf.cast(self.dataset.test_images, dtype=tf.float32)
+        #     self.Yoh = layers.toOneHot(self.dataset.test_labels, self.dataset.num_classes)
+        # else:
+        #     self.X = tf.cast(self.dataset.train_images, dtype=tf.float32)
+        #     self.Yoh = layers.toOneHot(self.dataset.train_labels, self.dataset.num_classes)
+
+        self.X = self.imagesTable[self.imagesType]
+        self.Yoh = layers.toOneHot(self.labelsTable[self.labelsType], self.dataset.num_classes)
 
         self.previewLabels = self.Yoh
+        self.previewImages = self.X
+
         net = self.X
 
         if net.shape[-1] > 1:
@@ -60,31 +67,19 @@ class SimpleCNN():
         if len(net.shape) > 4:
             net = tf.transpose(net, [0, 2, 3, 1, 4])
             net = tf.reshape(net, [-1, net.shape[1], net.shape[2], net.shape[3] * net.shape[4]])
-            self.previewImages = net
 
-        bn_params = {'decay': 0.999, 'center': True, 'scale': True, 'epsilon': 0.001,
-                     'updates_collections': None, 'is_training': self.is_training}
-
-        net = layers.conv2d(net, filters=96, kernel_size=3, padding='VALID', stride=2, name='conv1',
-                            normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+        net = layers.conv2d(net, filters=96, kernel_size=3, padding='VALID', stride=2, name='conv1')
         net = layers.max_pool2d(net, 3, 2, name='max_pool1')
 
-        net = layers.conv2d(net, filters=256, kernel_size=3, padding='VALID', stride=2, name='conv2',
-                            normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+        net = layers.conv2d(net, filters=256, kernel_size=3, padding='VALID', stride=2, name='conv2')
         net = layers.max_pool2d(net, 3, 2, name='max_pool2')
-
-        net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv3',
-                            normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
-
-        net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv4')
 
         net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv5')
         net = layers.max_pool2d(net, 3, 2, name='max_pool2')
 
         net = layers.flatten(net, name='flatten')
 
-        net = layers.fc(net, 4096, name='fc6')
-        net = layers.fc(net, 4096, name='fc7')
+        net = layers.fc(net, 512, name='fc7')
         net = layers.fc(net, self.dataset.num_classes, activation_fn=None, name='fc8')
 
         self.logits = net
@@ -93,7 +88,6 @@ class SimpleCNN():
         self.loss = layers.reduce_mean(layers.softmax_cross_entropy(logits=self.logits, labels=self.Yoh))
 
         self.learning_rate = layers.decayLearningRate(LEARNING_RATE, self.global_step, DECAY_STEPS, DECAY_RATE)
-
         self.opt = layers.adam(self.learning_rate)
         self.train_op = self.opt.minimize(self.loss, global_step=self.global_step)
 
@@ -103,7 +97,7 @@ class SimpleCNN():
 
         print("PREVIEWING DATA")
 
-        feed_dict = {self.is_training: True, self.dataset_type: 'train'}
+        feed_dict = {self.is_training: True, self.imagesType: 'trainImages', self.labelsType: 'trainLabels'}
         eval_tensors = [self.previewImages, self.previewLabels]
 
         x, y = self.sess.run(eval_tensors, feed_dict)
@@ -120,11 +114,11 @@ class SimpleCNN():
             epoch_start_time = time.time()
             currentSaveRate = SAVE_EVERY
 
-            for step in range(self.dataset.num_batches_train):
+            for step in range(self.dataset.num_batches_train // 10):
 
                 start_time = time.time()
 
-                feed_dict = {self.is_training: True, self.dataset_type: 'train'}
+                feed_dict = {self.is_training: True, self.imagesType: DATASET_INDEX_MAP['train'], self.labelsType: DATASET_INDEX_MAP['train']}
                 eval_tensors = [self.loss, self.train_op]
                 if (step + 1) * BATCH_SIZE % LOG_EVERY == 0:
                     eval_tensors += [self.merged_summary_op, self.accuracy, self.precision, self.recall]
@@ -186,7 +180,7 @@ class SimpleCNN():
                 print("Evaluating {}, done: {}/{}".format(dataset_type, (step + 1) * BATCH_SIZE, num_batches * BATCH_SIZE))
                 eval_tensors += [self.merged_summary_op]
 
-            feed_dict = {self.is_training: False, self.dataset_type: dataset_type}
+            feed_dict = {self.is_training: False, self.imagesType: DATASET_INDEX_MAP[dataset_type], self.labelsType: DATASET_INDEX_MAP[dataset_type]}
 
             eval_ret = self.sess.run(eval_tensors, feed_dict=feed_dict)
             eval_ret = dict(zip(eval_tensors, eval_ret))
@@ -227,7 +221,7 @@ class SimpleCNN():
                 print("Evaluating {}, done: {}/{}".format('test', (step + 1) * BATCH_SIZE, self.dataset.num_test_examples))
                 eval_tensors += [self.merged_summary_op]
 
-            feed_dict = {self.is_training: False, self.dataset_type: 'test'}
+            feed_dict = {self.is_training: False, self.imagesType: DATASET_INDEX_MAP['test'], self.labelsType: DATASET_INDEX_MAP['test']}
 
             eval_ret = self.sess.run(eval_tensors, feed_dict=feed_dict)
             eval_ret = dict(zip(eval_tensors, eval_ret))
@@ -314,6 +308,12 @@ class SimpleCNN():
         else:
             print("NIJE ODABRAN DATASET!")
 
+        images = [self.dataset.train_images, self.dataset.valid_images, self.dataset.test_images]
+        labels = [self.dataset.train_labels, self.dataset.valid_labels, self.dataset.test_labels]
+
+        self.imagesTable = tf.Variable(initial_value=images, trainable=False)
+        self.labelsTable = tf.Variable(initial_value=labels, trainable=False)
+
     def finishTraining(self):
         self.coord.request_stop()
         self.coord.join(self.threads)
@@ -351,7 +351,7 @@ class SimpleCNN():
             varsNotInCkpt = globalVars
 
         self.saver = tf.train.Saver()
-        self.sess.run(tf.group(tf.variables_initializer(varsNotInCkpt), tf.local_variables_initializer()))
+        self.sess.run(tf.group(tf.global_variables_initializer(), tf.local_variables_initializer()))
 
 
 model = SimpleCNN()

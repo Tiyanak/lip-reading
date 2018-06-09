@@ -8,7 +8,7 @@ import numpy as np
 from src.dataset import lrw_dataset, mnist_original_dataset, road_dataset, mnist_dataset, cifar_dataset
 
 DATASET_TO_USE = 'lrw'
-LOG_EVERY = 200
+LOG_EVERY = 200 if DATASET_TO_USE == 'road' else 1000
 SAVE_EVERY = 0.1
 DECAY_STEPS = 10000 # broj koraka za smanjivanje stope ucenja
 DECAY_RATE = 0.96 # rate smanjivanja stope ucenja
@@ -17,17 +17,17 @@ LEARNING_RATE = 1e-4
 BATCH_SIZE = 10
 MAX_EPOCHS = 10
 
-class MT_ResNet:
+class VGG16:
 
     def __init__(self):
 
-        self.initConfig() # postavi globalne varijable
-        self.createPlotDataVars() # kreiraj mapu za zapisivanje metrike (pdf + csv)
-        self.initDataReaders() # postavi dataset (reader za tfrecordse)
-        self.createModel() # kreiraj duboki model (tensorski graf)
-        self.initSummaries() # kreiraj summari writere
-        self.createSession() # kreiraj session, restoraj i inizijaliziraj varijable
-        self.addGraphToSummaries() # dodaj graf u summarije
+        self.initConfig()  # postavi globalne varijable
+        self.createPlotDataVars()  # kreiraj mapu za zapisivanje metrike (pdf + csv)
+        self.initDataReaders()  # postavi dataset (reader za tfrecordse)
+        self.createModel()  # kreiraj duboki model (tensorski graf)
+        self.initSummaries()  # kreiraj summary writere
+        self.createSession()  # kreiraj saver i session bez inicijalizacije varijabli
+        self.addGraphToSummaries()  # u summary writere dodaj graf
 
     def createModel(self):
 
@@ -50,134 +50,100 @@ class MT_ResNet:
             self.X = tf.cast(self.dataset.train_images, dtype=tf.float32)
             self.Yoh = layers.toOneHot(self.dataset.train_labels, self.dataset.num_classes)
 
+        bn_params = {'decay': 0.999, 'center': True, 'scale': True, 'epsilon': 0.001, 'updates_collections': None, 'is_training': self.is_training}
+
+        concated = None
         reuse = None
-        towersLogits = []
         for sequence_image in range(self.dataset.frames):
-            net = self.mt_loop(self.X[:, sequence_image], reuse)
-            towersLogits.append(net)
+
+            net = self.vgg_loop(self.X[:, sequence_image], reuse)
+
+            net_shape = net.get_shape()
+            net = tf.reshape(net, [BATCH_SIZE, int(net_shape[1]) * int(net_shape[2]) * int(net_shape[3])])
+
+            net = layers.fc(net, 64, name='spatial_FC', reuse=reuse,
+                            normalizer_fn=layers.batchNormalization, normalizer_params=bn_params,
+                            weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
+
+            if concated is None:
+                concated = tf.expand_dims(net, axis=1)
+            else:
+                concated = tf.concat([concated, tf.expand_dims(net, axis=1)], axis=1)
+
             reuse = True
 
-        net = layers.stack(towersLogits)
-        del towersLogits[:]
+        net = concated
+        net_shape = net.get_shape()
+        net = tf.reshape(net, [BATCH_SIZE, int(net_shape[1]) * int(net_shape[2])])
 
-        net = layers.transpose(net, [1, 2, 3, 0, 4])
-        net = layers.reshape(net, [-1, net.shape[1], net.shape[2], net.shape[3] * net.shape[4]])
-
-        bn_params = {'decay': 0.999, 'center': True, 'scale': True, 'epsilon': 0.001,
-                       'updates_collections': None, 'is_training': self.is_training}
-
-        net = layers.conv2d(net, 256, kernel_size=3, stride=2, padding='valid', name='conv2',
-                            weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
-                            normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
-        net = layers.max_pool2d(net, 3, 2, name='pool2')
-
-        net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv3',
-                            weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
-                            normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
-
-        net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv4',
-                            weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
-                            normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
-
-        net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv5',
+        layer_num = 1
+        for fully_connected_num in [64]:
+            net = layers.fc(net, fully_connected_num, name='temporal_FC{}'.format(layer_num),
+                            normalizer_fn=layers.batchNormalization, normalizer_params=bn_params,
                             weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
-        net = layers.max_pool2d(net, 3, 2, padding='VALID', name='max_pool5')
+            layer_num += 1
 
-        net = layers.flatten(net, name='flatten')
+        self.logits = layers.fc(
+            net, self.dataset.num_classes, activation_fn=None,
+            weights_regularizer=layers.l2_regularizer(),
+            name='logits'
+        )
 
-        net = layers.fc(net, 4096, name='fc6', weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
-        net = layers.fc(net, 4096, name='fc7', weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
-        net = layers.fc(net, self.dataset.num_classes, activation_fn=None, name='fc8',
-                        weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
-
-        self.logits = net
         self.preds = layers.softmax(self.logits)
 
         cross_entropy_loss = layers.reduce_mean(layers.softmax_cross_entropy(logits=self.logits, labels=self.Yoh))
         regularization_loss = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
-
         self.loss = cross_entropy_loss + REGULARIZER_SCALE * tf.reduce_sum(regularization_loss)
 
         self.learning_rate = layers.decayLearningRate(LEARNING_RATE, self.global_step, DECAY_STEPS, DECAY_RATE)
-
         self.opt = layers.sgd(self.learning_rate)
         self.train_op = self.opt.minimize(self.loss, global_step=self.global_step)
 
         self.accuracy, self.precision, self.recall = self.createSummaries(self.Yoh, self.preds, self.loss,
                                                                           self.learning_rate)
 
-    def mt_loop(self, net, reuse=False):
-
-        with tf.variable_scope('mt_loop', reuse=reuse):
-            net = self.build_resnet_18(net, reuse)
-
-        return net
-
-    def build_resnet_18(self, net, reuse=False):
-
-        bn_params = {'decay': 0.999, 'center': True, 'scale': True, 'epsilon': 0.001, 'updates_collections': None, 'is_training': self.is_training}
-
-        net = layers.conv2d(net, filters=64, kernel_size=7, stride=2, padding='SAME', name='resnet_conv1', reuse=reuse,
-                            weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
-                            normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
-        net = layers.max_pool2d(net, kernel_size=3, stride=2, padding='same')
-
-        net = self.res_block(net, 64, 3, reuse=reuse, name='resnet_conv2a')
-        net = self.res_block(net, 64, 3, reuse=reuse, name='resnet_conv2b')
-
-        net = self.res_block_first(net, 128, 3, reuse=reuse, name='resnet_conv3a')
-        net = self.res_block(net, 128, 3,reuse=reuse, name='resnet_conv3b')
-
-        net = self.res_block_first(net, 256, 3, reuse=reuse,name='resnet_conv4a')
-        net = self.res_block(net, 256, 3, reuse=reuse, name='resnet_conv4b')
-
-        net = self.res_block_first(net, 512, 3, reuse=reuse, name='resnet_conv5a')
-        net = self.res_block(net, 512, 3, reuse=reuse, name='resnet_conv5b')
-
-        net = layers.avg_pool2d(net, kernel_size=7, stride=1)
-
-        return net
-
-    def res_block(self, net, filters=64, kernel=3, name='resnet_convX', reuse=False):
+    def vgg_loop(self, net, reuse=False):
 
         bn_params = {'decay': 0.999, 'center': True, 'scale': True, 'epsilon': 0.001, 'updates_collections': None,
                      'is_training': self.is_training}
 
-        tmp_logits = net
-        net = layers.conv2d(net, filters=filters, kernel_size=kernel, stride=1, padding='same', name=name + '_1', reuse=reuse,
-                            weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
-                            normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+        with tf.variable_scope('vgg_loop', reuse=reuse):
 
-        net = layers.conv2d(net, filters=filters, kernel_size=kernel, stride=1, padding='same', name=name + '_2',
-                            reuse=reuse, activation_fn=None,
-                            weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
-                            normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
-        net = layers.add(net, tmp_logits)
-        net = layers.relu(net)
+            net = layers.conv2d(net, 64, name='conv1_1', reuse=reuse, weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
+                                normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+            net = layers.conv2d(net, 64, name='conv1_2', reuse=reuse, weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
+                                normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+            net = layers.max_pool2d(net, [2, 2], 2, name='pool1')
 
-        return net
+            net = layers.conv2d(net, 128, name='conv2_1', reuse=reuse, weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
+                                normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+            net = layers.conv2d(net, 128, name='conv2_2', reuse=reuse, weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
+                                normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+            net = layers.max_pool2d(net, [2, 2], 2, name='pool2')
 
-    def res_block_first(self, net, filters=64, kernel=3, stride=1, reuse=False, name='resnet_convX'):
+            net = layers.conv2d(net, 256, name='conv3_1', reuse=reuse, weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
+                                normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+            net = layers.conv2d(net, 256, name='conv3_2', reuse=reuse, weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
+                                normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+            net = layers.conv2d(net, 256, name='conv3_3', reuse=reuse, weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
+                                normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+            net = layers.max_pool2d(net, [2, 2], 2, name='pool3')
 
-        bn_params = {'decay': 0.999, 'center': True, 'scale': True, 'epsilon': 0.001, 'updates_collections': None,
-                     'is_training': self.is_training}
+            net = layers.conv2d(net, 512, name='conv4_1', reuse=reuse, weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
+                                normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+            net = layers.conv2d(net, 512, name='conv4_2', reuse=reuse, weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
+                                normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+            net = layers.conv2d(net, 512, name='conv4_3', reuse=reuse, weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
+                                normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+            net = layers.max_pool2d(net, [2, 2], 2, name='pool4')
 
-        tmp_logits = layers.conv2d(net, filters=filters, kernel_size=kernel, stride=stride, padding='same',
-                                   activation_fn=None, name=name + '_shortcut', reuse=reuse,
-                                   weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
-                                   normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
-
-        net = layers.conv2d(net, filters=filters, kernel_size=kernel, stride=stride, padding='same', name=name + '_1',
-                            reuse=reuse, weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
-                            normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
-
-        net = layers.conv2d(net, filters=filters, kernel_size=kernel, stride=stride, padding='same', name=name + '_2',
-                            reuse=reuse, activation_fn=None,
-                            weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
-                            normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
-
-        net = layers.add(net, tmp_logits)
-        net = layers.relu(net)
+            net = layers.conv2d(net, 512, name='conv5_1', reuse=reuse, weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
+                                normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+            net = layers.conv2d(net, 512, name='conv5_2', reuse=reuse, weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
+                                normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+            net = layers.conv2d(net, 512, name='conv5_3', reuse=reuse, weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
+                                normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+            net = layers.max_pool2d(net, [2, 2], 2, name='pool5')
 
         return net
 
@@ -325,7 +291,7 @@ class MT_ResNet:
     def initConfig(self):
 
         print("INITIALIZING CONFIGURATION VARIABLES")
-        self.name = 'mt_resnet'
+        self.name = 'vgg16'
         self.checkpoint_dir = config.config['checkpoint_root_dir'] # direktorij gdje se nalazi checkpoint
         self.summary_dir = config.config['summary_root_dir']
 
@@ -374,15 +340,15 @@ class MT_ResNet:
 
     def initDataReaders(self):
         if DATASET_TO_USE == 'lrw':
-            self.dataset = lrw_dataset.LrwDataset(BATCH_SIZE)
+            self.dataset = lrw_dataset.LrwDataset()
         elif DATASET_TO_USE == 'road':
-            self.dataset = road_dataset.RoadDataset(BATCH_SIZE)
+            self.dataset = road_dataset.RoadDataset()
         elif DATASET_TO_USE == 'mnist':
-            self.dataset = mnist_dataset.MnistDataset(BATCH_SIZE)
+            self.dataset = mnist_dataset.MnistDataset()
         elif DATASET_TO_USE == 'mnist_original':
-            self.dataset = mnist_original_dataset.MnistOriginalDataset(BATCH_SIZE)
+            self.dataset = mnist_original_dataset.MnistOriginalDataset()
         elif DATASET_TO_USE == 'cifar':
-            self.dataset = cifar_dataset.CifarDataset(BATCH_SIZE)
+            self.dataset = cifar_dataset.CifarDataset()
         else:
             print("NIJE ODABRAN DATASET!")
 
@@ -424,5 +390,5 @@ class MT_ResNet:
         self.saver = tf.train.Saver()
         self.sess.run(tf.group(tf.variables_initializer(varsNotInCkpt), tf.local_variables_initializer()))
 
-model = MT_ResNet()
+model = VGG16()
 model.train()

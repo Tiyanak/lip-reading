@@ -169,7 +169,7 @@ createNecesseryDirs(config.DIRS_TO_CREATE)
 
 def write_test_results(total_loss, acc, pr, rec, prAtTop10, top5CorrectWords, top5IncorrectWords, datasetname, modelname):
 
-    classmap = readClassmapFile(os.path.join(config.config['tfrecords_root_dir'], datasetname + '_classmap.txt'))
+    classmap = readClassmapFile(os.path.join(config.config['tfrecords_root_dir'], datasetname + '_tfrecords', datasetname + '_classmap.txt'))
     testStatFile = os.path.join(config.config['results_root_dir'], datasetname, modelname, 'test_' + config.config['filename_pattern'] + config.TXT_EXT)
 
     with open(testStatFile, 'w') as f:
@@ -227,7 +227,7 @@ def writeClassmapFile(fileapath, labelsToNumsMap):
 def mapTop10ForEveryLabel(labels, preds_onehot):
     top10List = []
     for i in range(len(labels)):
-        top10indices = np.argsort(preds_onehot[i])[::-1][:10]
+        top10indices = np.argsort(preds_onehot[i])[::-1][:50]
         top10List.append((labels[i], top10indices, preds_onehot[i][top10indices]))
 
     return top10List
@@ -240,7 +240,8 @@ def testStatistics(labels, preds_onehot):
     classNums = len(preds_onehot[0])
     labelsResultsDict = {}
     labelsStat = {}
-    numOfTopItems = 10 if classNums >= 10 else classNums
+    allItems = []
+    numOfTopItems = 50 if classNums >= 10 else classNums
 
     for i in range(classNums):
         labelsResultsDict[i] = (0)
@@ -252,6 +253,7 @@ def testStatistics(labels, preds_onehot):
             labelsProbIndex = labelsStat[item[0]][0]
             labelsTopIndexes = labelsStat[item[0]][1]
             labelsTopProbs = labelsStat[item[0]][2]
+            allItems.append((item[0], labelsProbIndex, item[1], item[2]))
 
             for j in range(numOfTopItems):
                 if item[1][j] == item[0] and j <= labelsProbIndex:
@@ -267,18 +269,37 @@ def testStatistics(labels, preds_onehot):
 
             if labelsStat[item[0]][0] == numOfTopItems:
                 labelsStat[item[0]] = (numOfTopItems, item[1], item[2])
+                allItems.append((item[0], numOfTopItems, item[1], item[2]))
 
     sorted_x = sorted(labelsResultsDict.items(), key=operator.itemgetter(1))
 
     top5Correct = []
     top5Incorrect = []
+    sorted_x_len = len(sorted_x)
 
-    if len(sorted_x) > 4:
-        for i in range(5):
-            top5Incorrect.append((sorted_x[i][0], sorted_x[i][1], labelsStat[sorted_x[i][0]][0], labelsStat[sorted_x[i][0]][1], labelsStat[sorted_x[i][0]][2]))
+    if sorted_x_len > 4:
+
+        i = 0
+        foundCounter = 0
+        while i < sorted_x_len and foundCounter < 5:
+            if labelsStat[sorted_x[i][0]][0] > 0:
+                top5Incorrect.append((sorted_x[i][0], sorted_x[i][1], labelsStat[sorted_x[i][0]][0], labelsStat[sorted_x[i][0]][1], labelsStat[sorted_x[i][0]][2]))
+                foundCounter = foundCounter + 1
+            i = i + 1
 
         for i in range(len(sorted_x)-5, len(sorted_x)):
             top5Correct.append((sorted_x[i][0], sorted_x[i][1], labelsStat[sorted_x[i][0]][0], labelsStat[sorted_x[i][0]][1], labelsStat[sorted_x[i][0]][2]))
+
+    i = 0
+    foundCounter = 0
+    lenAllItems = len(allItems)
+    while i < lenAllItems and foundCounter < 30:
+        if allItems[i][1] > 0:
+            top5Incorrect.append((allItems[i][0], sorted_x[allItems[i][0]][1], allItems[i][1],
+                                  allItems[i][2], allItems[i][3]))
+            foundCounter = foundCounter + 1
+        i = i + 1
+
 
     return (float(inTop10 / len(labels)), top5Correct, top5Incorrect)
 

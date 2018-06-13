@@ -183,16 +183,17 @@ def write_test_results(total_loss, acc, pr, rec, prAtTop10, top5CorrectWords, to
         f.write('Top 5 CORRECT items\n\n')
         for item in top5CorrectWords:
             f.write('label={}  correct_counter={} prob_rank={} prob={}\n'.format(item[0], item[1], item[2], 0 if item[2] > 9 else item[4][item[2]]))
-            f.write(classmap[str(item[0])] + ' -> ' + ' :: '.join([classmap[str(x)] for x in item[3]]) + '\n')
-            f.write(classmap[str(item[0])] + ' -> ' + ' :: '.join([str(x) for x in item[4]]) + '\n\n')
+            f.write(classmap[str(item[0])] + ' -> ' + ' :: '.join(['{} ({}%)'.format(classmap[str(item[3][i])], decimalToPercent(str(item[4][i]))) for i in range(len(item[3]))]) + '\n')
 
         f.write('\nTop 5 INCORRECT items\n\n')
         for item in top5IncorrectWords:
             f.write('label={}  correct_counter={} prob_rank={} prob={}\n'.format(item[0], item[1], item[2],  0 if item[2] > 9 else item[4][item[2]]))
-            f.write(classmap[str(item[0])] + ' -> ' + ' :: '.join([classmap[str(x)] for x in item[3]]) + '\n')
-            f.write(classmap[str(item[0])] + ' -> ' + ' :: '.join([str(x) for x in item[4]]) + '\n\n')
+            f.write(classmap[str(item[0])] + ' -> ' + ' :: '.join(['{} ({}%)'.format(classmap[str(item[3][i])], decimalToPercent(str(item[4][i]))) for i in range(len(item[3]))]) + '\n')
 
     f.close()
+
+def decimalToPercent(decimalNumber):
+    return '%.2f' % (float(decimalNumber) * 100)
 
 def lrwWordsToNumbers(videos_dir):
     words = {}

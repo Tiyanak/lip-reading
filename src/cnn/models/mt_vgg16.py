@@ -17,7 +17,7 @@ LEARNING_RATE = 1e-4
 BATCH_SIZE = 10
 MAX_EPOCHS = 10
 
-class MT_ResNet:
+class MT_VGG16:
 
     def __init__(self):
 
@@ -71,8 +71,8 @@ class MT_ResNet:
             net = layers.conv2d(net, 256, kernel_size=3, stride=1, padding='SAME', name='conv2',
                                 weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
                                 normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
-            net = layers.max_pool2d(net, 3, 1, padding='SAME', name='pool2')
             net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se2', filters=256)
+            net = layers.max_pool2d(net, 3, 1, padding='SAME', name='pool2')
 
             net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv3',
                                 weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
@@ -85,8 +85,8 @@ class MT_ResNet:
 
             net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv5',
                                 weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
-            net = layers.max_pool2d(net, 3, 2, padding='SAME', name='max_pool5')
             net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se5', filters=512)
+            net = layers.max_pool2d(net, 3, 2, padding='SAME', name='max_pool5')
 
             net = layers.flatten(net, name='flatten')
 
@@ -100,7 +100,7 @@ class MT_ResNet:
 
             cross_entropy_loss = layers.reduce_mean(layers.softmax_cross_entropy(logits=self.logits, labels=self.Yoh))
             regularization_loss = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
-            self.loss = cross_entropy_loss + REGULARIZER_SCALE * tf.reduce_sum(regularization_loss)
+            self.loss = cross_entropy_loss + REGULARIZER_SCALE * tf.wreduce_sum(regularization_loss)
 
             self.learning_rate = layers.decayLearningRate(LEARNING_RATE, self.global_step, DECAY_STEPS, DECAY_RATE)
             self.opt = layers.sgd(self.learning_rate)
@@ -129,8 +129,8 @@ class MT_ResNet:
             net = layers.conv2d(net, 64, name='conv1_2', reuse=reuse,
                                 weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
                                 normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
-            net = layers.max_pool2d(net, [2, 2], 2, name='pool1')
             net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='vgg_se1', filters=64)
+            net = layers.max_pool2d(net, [2, 2], 2, name='pool1')
 
         with tf.variable_scope('conv2', reuse=reuse):
             net = layers.conv2d(net, 128, name='conv2_1', reuse=reuse,
@@ -139,8 +139,8 @@ class MT_ResNet:
             net = layers.conv2d(net, 128, name='conv2_2', reuse=reuse,
                                 weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
                                 normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
-            net = layers.max_pool2d(net, [2, 2], 2, name='pool2')
             net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='vgg_se2', filters=128)
+            net = layers.max_pool2d(net, [2, 2], 2, name='pool2')
 
         with tf.variable_scope('conv3', reuse=reuse):
             net = layers.conv2d(net, 256, name='conv3_1', reuse=reuse,
@@ -152,8 +152,8 @@ class MT_ResNet:
             net = layers.conv2d(net, 256, name='conv3_3', reuse=reuse,
                                 weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
                                 normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
-            net = layers.max_pool2d(net, [2, 2], 2, name='pool3')
             net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='vgg_se3', filters=256)
+            net = layers.max_pool2d(net, [2, 2], 2, name='pool3')
 
         with tf.variable_scope('conv4', reuse=reuse):
             net = layers.conv2d(net, 512, name='conv4_1', reuse=reuse,
@@ -165,8 +165,8 @@ class MT_ResNet:
             net = layers.conv2d(net, 512, name='conv4_3', reuse=reuse,
                                 weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
                                 normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
-            net = layers.max_pool2d(net, [2, 2], 2, name='pool4')
             net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='vgg_se4', filters=512)
+            net = layers.max_pool2d(net, [2, 2], 2, name='pool4')
 
         with tf.variable_scope('conv5', reuse=reuse):
             net = layers.conv2d(net, 512, name='conv5_1', reuse=reuse,
@@ -178,8 +178,8 @@ class MT_ResNet:
             net = layers.conv2d(net, 512, name='conv5_3', reuse=reuse,
                                 weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
                                 normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
-            net = layers.max_pool2d(net, [2, 2], 2, name='pool5')
             net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='vgg_se5', filters=512)
+            net = layers.max_pool2d(net, [2, 2], 2, name='pool5')
 
         return net
 
@@ -427,5 +427,5 @@ class MT_ResNet:
         self.saver = tf.train.Saver()
         self.sess.run(tf.group(tf.variables_initializer(varsNotInCkpt), tf.local_variables_initializer()))
 
-model = MT_ResNet()
+model = MT_VGG16()
 model.train()

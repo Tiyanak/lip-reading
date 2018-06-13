@@ -69,18 +69,22 @@ class MT_ResNet:
         net = layers.conv2d(net, 256, kernel_size=3, stride=2, padding='valid', name='conv2',
                             weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
                             normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+        net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se2', filters=256)
         net = layers.max_pool2d(net, 3, 2, name='pool2')
 
         net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv3',
                             weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
                             normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+        net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se3', filters=512)
 
         net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv4',
                             weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
                             normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+        net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se4', filters=512)
 
         net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv5',
                             weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
+        net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se5', filters=512)
         net = layers.max_pool2d(net, 3, 2, padding='VALID', name='max_pool5')
 
         net = layers.flatten(net, name='flatten')
@@ -120,6 +124,7 @@ class MT_ResNet:
         net = layers.conv2d(net, filters=64, kernel_size=7, stride=2, padding='SAME', name='resnet_conv1', reuse=reuse,
                             weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
                             normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+        net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se1', filters=64)
         net = layers.max_pool2d(net, kernel_size=3, stride=2, padding='same')
 
         net = self.res_block(net, 64, 3, reuse=reuse, name='resnet_conv2a')
@@ -152,6 +157,7 @@ class MT_ResNet:
                             reuse=reuse, activation_fn=None,
                             weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
                             normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+        net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se' + name, filters=filters)
         net = layers.add(net, tmp_logits)
         net = layers.relu(net)
 
@@ -175,7 +181,7 @@ class MT_ResNet:
                             reuse=reuse, activation_fn=None,
                             weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
                             normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
-
+        net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se' + name, filters=filters)
         net = layers.add(net, tmp_logits)
         net = layers.relu(net)
 

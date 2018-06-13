@@ -70,8 +70,8 @@ class MT_3:
         net = layers.conv3d(net, 256, kernel_size=3, stride=2, padding='valid', name='conv2',
                             normalizer_fn=layers.batchNormalization, normalizer_params=bn_params,
                             weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
-        net = layers.max_pool3d(net, 3, 2, name='pool2')
         net = layers.squeeze_and_excite3d(net, indexHeight=1, indexWidth=2, indexSeq=3, name='se2', filters=256)
+        net = layers.max_pool3d(net, 3, 2, name='pool2')
 
         net = layers.conv3d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv3',
                             normalizer_fn=layers.batchNormalization, normalizer_params=bn_params,
@@ -86,8 +86,8 @@ class MT_3:
 
         net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv5',
                             weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
-        net = layers.max_pool2d(net, 3, 2, padding='VALID', name='max_pool5')
         net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se5', filters=512)
+        net = layers.max_pool2d(net, 3, 2, padding='VALID', name='max_pool5')
 
         net = layers.flatten(net, name='flatten')
 
@@ -118,8 +118,8 @@ class MT_3:
             net = layers.conv2d(net, 48, kernel_size=3, name='conv1', reuse=reuse, stride=2, padding='valid',
                                 normalizer_fn=layers.batchNormalization, normalizer_params=bn_params,
                                 weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
-            net = layers.max_pool2d(net, 3, 2, name='pool1')
             net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se1', filters=48, reuse=reuse)
+            net = layers.max_pool2d(net, 3, 2, name='pool1')
 
         return net
 

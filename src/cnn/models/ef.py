@@ -40,15 +40,15 @@ class EF:
         dataset_val = tf.placeholder_with_default('val', [], name='dataset_val')
         dataset_test = tf.placeholder_with_default('test', [], name='dataset_test')
 
-        if dataset_val.__eq__(self.dataset_type):
-            self.X = tf.cast(self.dataset.valid_images, dtype=tf.float32)
-            self.Yoh = layers.toOneHot(self.dataset.valid_labels, self.dataset.num_classes)
-        elif dataset_test.__eq__(self.dataset_type):
-            self.X = tf.cast(self.dataset.test_images, dtype=tf.float32)
-            self.Yoh = layers.toOneHot(self.dataset.test_labels, self.dataset.num_classes)
-        else:
-            self.X = tf.cast(self.dataset.train_images, dtype=tf.float32)
-            self.Yoh = layers.toOneHot(self.dataset.train_labels, self.dataset.num_classes)
+        # if dataset_val.__eq__(self.dataset_type):
+        # self.X = tf.cast(self.dataset.valid_images, dtype=tf.float32)
+        # self.Yoh = layers.toOneHot(self.dataset.valid_labels, self.dataset.num_classes)
+        # elif dataset_test.__eq__(self.dataset_type):
+        self.X = tf.cast(self.dataset.test_images, dtype=tf.float32)
+        self.Yoh = layers.toOneHot(self.dataset.test_labels, self.dataset.num_classes)
+        # else:
+        #     self.X = tf.cast(self.dataset.train_images, dtype=tf.float32)
+        #     self.Yoh = layers.toOneHot(self.dataset.train_labels, self.dataset.num_classes)
 
         self.previewLabels = self.Yoh
         self.previewImages = self.X
@@ -67,14 +67,14 @@ class EF:
         net = layers.conv2d(net, filters=96, kernel_size=3, padding='VALID', stride=2, name='conv1',
                             normalizer_fn=layers.batchNormalization, normalizer_params=bn_params,
                             weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
-        net = layers.max_pool2d(net, 3, 2, name='max_pool1')
         net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se1', filters=96)
+        net = layers.max_pool2d(net, 3, 2, name='max_pool1')
 
         net = layers.conv2d(net, filters=256, kernel_size=3, padding='VALID', stride=2, name='conv2',
                             normalizer_fn=layers.batchNormalization, normalizer_params=bn_params,
                             weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
-        net = layers.max_pool2d(net, 3, 2, name='max_pool2')
         net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se2', filters=256)
+        net = layers.max_pool2d(net, 3, 2, name='max_pool2')
 
         net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv3',
                             normalizer_fn=layers.batchNormalization, normalizer_params=bn_params,
@@ -87,8 +87,8 @@ class EF:
 
         net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv5',
                             weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
-        net = layers.max_pool2d(net, 3, 2, name='max_pool2')
         net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se5', filters=512)
+        net = layers.max_pool2d(net, 3, 2, name='max_pool2')
 
         net = layers.flatten(net, name='flatten')
 
@@ -373,7 +373,7 @@ class EF:
         self.sess.run(tf.group(tf.variables_initializer(varsNotInCkpt), tf.local_variables_initializer()))
 
 model = EF()
-model.train()
+# model.train()
 # model.validate(25000, 1, 'val')
-# model.test()
+model.test()
 # model.previewData()

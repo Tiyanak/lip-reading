@@ -24,7 +24,7 @@ class MT_VGG16:
         self.initConfig() # postavi globalne varijable
         self.createPlotDataVars() # kreiraj mapu za zapisivanje metrike (pdf + csv)
         self.initDataReaders() # postavi dataset (reader za tfrecordse)
-        self.createModel() # kreiraj duboki model (tensorski graf)
+        self.createModelLowMemory() # kreiraj duboki model (tensorski graf)
         self.initSummaries() # kreiraj summari writere
         self.createSession() # kreiraj session, restoraj i inizijaliziraj varijable
         self.addGraphToSummaries() # dodaj graf u summarije
@@ -35,20 +35,12 @@ class MT_VGG16:
 
         self.global_step = tf.Variable(0, trainable=False)
         self.is_training = tf.placeholder_with_default(True, [], name='is_training')
-        self.dataset_type = tf.placeholder_with_default('train_train', [], name='dataset_type')
+        self.learning_rate = layers.decayLearningRate(LEARNING_RATE, self.global_step, DECAY_STEPS, DECAY_RATE)
 
-        dataset_val = tf.placeholder_with_default('val', [], name='dataset_val')
-        dataset_test = tf.placeholder_with_default('test', [], name='dataset_test')
+        self.X = tf.placeholder(dtype=tf.float32, shape=[None, self.dataset.frames, self.dataset.h, self.dataset.w, self.dataset.c])
+        self.Y = tf.placeholder(dtype=tf.int32, shape=[None])
 
-        if dataset_val.__eq__(self.dataset_type):
-            self.X = tf.cast(self.dataset.valid_images, dtype=tf.float32)
-            self.Yoh = layers.toOneHot(self.dataset.valid_labels, self.dataset.num_classes)
-        elif dataset_test.__eq__(self.dataset_type):
-            self.X = tf.cast(self.dataset.test_images, dtype=tf.float32)
-            self.Yoh = layers.toOneHot(self.dataset.test_labels, self.dataset.num_classes)
-        else:
-            self.X = tf.cast(self.dataset.train_images, dtype=tf.float32)
-            self.Yoh = layers.toOneHot(self.dataset.train_labels, self.dataset.num_classes)
+        self.Yoh = layers.toOneHot(self.Y, self.dataset.num_classes)
 
         reuse = None
         towersLogits = []
@@ -63,59 +55,54 @@ class MT_VGG16:
         net = layers.transpose(net, [1, 2, 3, 0, 4])
         net = layers.reshape(net, [-1, net.shape[1], net.shape[2], net.shape[3] * net.shape[4]])
 
-        with tf.device('/GPU:1'):
+        bn_params = {'decay': 0.999, 'center': True, 'scale': True, 'epsilon': 0.001,
+                       'updates_collections': None, 'is_training': self.is_training}
 
-            bn_params = {'decay': 0.999, 'center': True, 'scale': True, 'epsilon': 0.001,
-                           'updates_collections': None, 'is_training': self.is_training}
+        net = layers.conv2d(net, 256, kernel_size=3, stride=1, padding='SAME', name='conv2',
+                            weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
+                            normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+        net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se2', filters=256)
+        net = layers.max_pool2d(net, 3, 1, padding='SAME', name='pool2')
 
-            net = layers.conv2d(net, 256, kernel_size=3, stride=1, padding='SAME', name='conv2',
-                                weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
-                                normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
-            net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se2', filters=256)
-            net = layers.max_pool2d(net, 3, 1, padding='SAME', name='pool2')
+        net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv3',
+                            weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
+                            normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+        net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se3', filters=512)
 
-            net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv3',
-                                weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
-                                normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
-            net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se3', filters=512)
-
-            net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv4',
-                                weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
-            net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se4', filters=512)
-
-            net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv5',
-                                weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
-            net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se5', filters=512)
-            net = layers.max_pool2d(net, 3, 2, padding='SAME', name='max_pool5')
-
-            net = layers.flatten(net, name='flatten')
-
-            net = layers.fc(net, 4096, name='fc6', weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
-            net = layers.fc(net, 4096, name='fc7', weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
-            net = layers.fc(net, self.dataset.num_classes, activation_fn=None, name='fc8',
+        net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv4',
                             weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
+        net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se4', filters=512)
 
-            self.logits = net
-            self.preds = layers.softmax(self.logits)
+        net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv5',
+                            weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
+        net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se5', filters=512)
+        net = layers.max_pool2d(net, 3, 2, padding='SAME', name='max_pool5')
 
-            cross_entropy_loss = layers.reduce_mean(layers.softmax_cross_entropy(logits=self.logits, labels=self.Yoh))
-            regularization_loss = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
-            self.loss = cross_entropy_loss + REGULARIZER_SCALE * tf.wreduce_sum(regularization_loss)
+        net = layers.flatten(net, name='flatten')
 
-            self.learning_rate = layers.decayLearningRate(LEARNING_RATE, self.global_step, DECAY_STEPS, DECAY_RATE)
-            self.opt = layers.sgd(self.learning_rate)
-            self.train_op = self.opt.minimize(self.loss, global_step=self.global_step)
+        net = layers.fc(net, 4096, name='fc6', weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
+        net = layers.fc(net, 4096, name='fc7', weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
 
-            self.accuracy, self.precision, self.recall = self.createSummaries(self.Yoh, self.preds, self.loss,
+        self.logits = layers.fc(net, self.dataset.num_classes, activation_fn=None, name='fc8',
+                        weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
+
+        self.preds = layers.softmax(self.logits)
+
+        cross_entropy_loss = layers.reduce_mean(layers.softmax_cross_entropy(logits=self.logits, labels=self.Yoh))
+        regularization_loss = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
+        self.loss = cross_entropy_loss + REGULARIZER_SCALE * tf.reduce_sum(regularization_loss)
+        self.opt = layers.adam(self.learning_rate)
+        self.train_op = self.opt.minimize(self.loss, global_step=self.global_step)
+
+        self.accuracy, self.precision, self.recall = self.createSummaries(self.Yoh, self.preds, self.loss,
                                                                               self.learning_rate)
 
     def mt_loop(self, net, reuse=False):
 
-        with tf.device('/GPU:0'):
-            with tf.variable_scope('vgg_16', reuse=reuse):
-                net = self.build_vgg16(net, reuse)
+        with tf.variable_scope('vgg_16', reuse=reuse):
+            net = self.build_vgg16(net, reuse)
 
-            return net
+        return net
 
     def build_vgg16(self, net, reuse=False):
 
@@ -183,6 +170,100 @@ class MT_VGG16:
 
         return net
 
+    def createModelLowMemory(self):
+
+        print("CREATING MODEL")
+
+        self.global_step = tf.Variable(0, trainable=False)
+        self.is_training = tf.placeholder_with_default(True, [], name='is_training')
+        self.learning_rate = layers.decayLearningRate(LEARNING_RATE, self.global_step, DECAY_STEPS, DECAY_RATE)
+
+        self.X = tf.placeholder(dtype=tf.float32, shape=[None, self.dataset.frames, self.dataset.h, self.dataset.w, self.dataset.c])
+        self.Y = tf.placeholder(dtype=tf.int32, shape=[None])
+
+        self.Yoh = layers.toOneHot(self.Y, self.dataset.num_classes)
+
+        reuse = None
+        towersLogits = []
+        for sequence_image in range(self.dataset.frames):
+            net = self.mt_loop_low_memory(self.X[:, sequence_image], reuse)
+            towersLogits.append(net)
+            reuse = True
+
+        net = layers.stack(towersLogits)
+        del towersLogits[:]
+
+        net = layers.transpose(net, [1, 2, 3, 0, 4])
+        net = layers.reshape(net, [-1, net.shape[1], net.shape[2], net.shape[3] * net.shape[4]])
+
+        net = layers.conv2d(net, 256, kernel_size=3, stride=1, padding='SAME', name='conv2')
+        net = layers.max_pool2d(net, 3, 1, padding='SAME', name='pool2')
+
+        net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv3')
+
+        net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv4')
+
+        net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv5')
+        net = layers.max_pool2d(net, 3, 2, padding='SAME', name='max_pool5')
+
+        net = layers.flatten(net, name='flatten')
+
+        net = layers.fc(net, 4096, name='fc6')
+        net = layers.fc(net, 4096, name='fc7')
+
+        self.logits = layers.fc(net, self.dataset.num_classes, activation_fn=None, name='fc8')
+
+        self.preds = layers.softmax(self.logits)
+
+        self.loss = layers.reduce_mean(layers.softmax_cross_entropy(logits=self.logits, labels=self.Yoh))
+        self.opt = layers.sgd(self.learning_rate)
+        self.train_op = self.opt.minimize(self.loss, global_step=self.global_step)
+
+        self.accuracy, self.precision, self.recall = self.createSummaries(self.Yoh, self.preds, self.loss,
+                                                                              self.learning_rate)
+
+    def mt_loop_low_memory(self, net, reuse=False):
+
+        with tf.variable_scope('vgg_16', reuse=reuse):
+            net = self.build_vgg16_low_memory(net, reuse)
+
+        return net
+
+    def build_vgg16_low_memory(self, net, reuse=False):
+
+        bn_params = {'decay': 0.999, 'center': True, 'scale': True, 'epsilon': 0.001, 'updates_collections': None,
+                     'is_training': self.is_training}
+
+        with tf.variable_scope('conv1', reuse=reuse):
+            net = layers.conv2d(net, 64, name='conv1_1', reuse=reuse)
+            net = layers.conv2d(net, 64, name='conv1_2', reuse=reuse)
+            net = layers.max_pool2d(net, [2, 2], 2, name='pool1')
+
+        with tf.variable_scope('conv2', reuse=reuse):
+            net = layers.conv2d(net, 128, name='conv2_1', reuse=reuse)
+            net = layers.conv2d(net, 128, name='conv2_2', reuse=reuse)
+            net = layers.max_pool2d(net, [2, 2], 2, name='pool2')
+
+        with tf.variable_scope('conv3', reuse=reuse):
+            net = layers.conv2d(net, 256, name='conv3_1', reuse=reuse)
+            net = layers.conv2d(net, 256, name='conv3_2', reuse=reuse)
+            net = layers.conv2d(net, 256, name='conv3_3', reuse=reuse)
+            net = layers.max_pool2d(net, [2, 2], 2, name='pool3')
+
+        with tf.variable_scope('conv4', reuse=reuse):
+            net = layers.conv2d(net, 512, name='conv4_1', reuse=reuse)
+            net = layers.conv2d(net, 512, name='conv4_2', reuse=reuse)
+            net = layers.conv2d(net, 512, name='conv4_3', reuse=reuse)
+            net = layers.max_pool2d(net, [2, 2], 2, name='pool4')
+
+        with tf.variable_scope('conv5', reuse=reuse):
+            net = layers.conv2d(net, 512, name='conv5_1', reuse=reuse)
+            net = layers.conv2d(net, 512, name='conv5_2', reuse=reuse)
+            net = layers.conv2d(net, 512, name='conv5_3', reuse=reuse)
+            net = layers.max_pool2d(net, [2, 2], 2, name='pool5')
+
+        return net
+
     def train(self):
 
         print("TRAINING IS STARTING RIGHT NOW!")
@@ -196,10 +277,12 @@ class MT_VGG16:
 
                 start_time = time.time()
 
-                feed_dict = {self.is_training: True, self.dataset_type: 'train'}
+                batch_x, batch_y = self.sess.run([self.dataset.train_images, self.dataset.train_labels])
+
+                feed_dict = {self.is_training: True, self.X: batch_x, self.Y: batch_y}
                 eval_tensors = [self.loss, self.train_op]
                 if (step + 1) * BATCH_SIZE % LOG_EVERY == 0:
-                    eval_tensors += [self.merged_summary_op, self.accuracy, self.precision, self.recall]
+                    eval_tensors += [self.merged_summary_op]
 
                 eval_ret = self.sess.run(eval_tensors, feed_dict=feed_dict)
                 eval_ret = dict(zip(eval_tensors, eval_ret))
@@ -255,12 +338,17 @@ class MT_VGG16:
 
         for step in range(num_batches):
 
-            eval_tensors = [self.Yoh, self.preds, self.loss, self.accuracy, self.precision, self.recall]
+            eval_tensors = [self.Yoh, self.preds, self.loss]
             if (step + 1) * BATCH_SIZE % LOG_EVERY == 0:
                 print("Evaluating {}, done: {}/{}".format(dataset_type, (step + 1) * BATCH_SIZE, num_batches * BATCH_SIZE))
                 eval_tensors += [self.merged_summary_op]
 
-            feed_dict = {self.is_training: False, self.dataset_type: dataset_type}
+            if dataset_type == 'train':
+                batch_x, batch_y = self.sess.run([self.dataset.train_images, self.dataset.train_labels])
+            else:
+                batch_x, batch_y = self.sess.run([self.dataset.valid_images, self.dataset.valid_labels])
+
+            feed_dict = {self.is_training: False, self.X: batch_x, self.Y: batch_y}
 
             eval_ret = self.sess.run(eval_tensors, feed_dict=feed_dict)
             eval_ret = dict(zip(eval_tensors, eval_ret))
@@ -296,12 +384,14 @@ class MT_VGG16:
 
         for step in range(self.dataset.num_batches_test):
 
-            eval_tensors = [self.Yoh, self.preds, self.loss, self.accuracy, self.precision, self.recall]
+            eval_tensors = [self.Yoh, self.preds, self.loss]
             if (step + 1) * BATCH_SIZE % LOG_EVERY == 0:
                 print("Evaluating {}, done: {}/{}".format('test', (step + 1) * BATCH_SIZE, self.dataset.num_test_examples))
                 eval_tensors += [self.merged_summary_op]
 
-            feed_dict = {self.is_training: False, self.dataset_type: 'test'}
+            batch_x, batch_y = self.sess.run([self.dataset.test_images, self.dataset.test_labels])
+
+            feed_dict = {self.is_training: False, self.X: batch_x, self.Y: batch_y}
 
             eval_ret = self.sess.run(eval_tensors, feed_dict=feed_dict)
             eval_ret = dict(zip(eval_tensors, eval_ret))
@@ -327,7 +417,7 @@ class MT_VGG16:
     def initConfig(self):
 
         print("INITIALIZING CONFIGURATION VARIABLES")
-        self.name = 'mt_vgg_16'
+        self.name = 'mt_vgg16'
         self.checkpoint_dir = config.config['checkpoint_root_dir'] # direktorij gdje se nalazi checkpoint
         self.summary_dir = config.config['summary_root_dir']
 
@@ -376,15 +466,15 @@ class MT_VGG16:
 
     def initDataReaders(self):
         if DATASET_TO_USE == 'lrw':
-            self.dataset = lrw_dataset.LrwDataset(BATCH_SIZE)
+            self.dataset = lrw_dataset.LrwDataset(batch_size=BATCH_SIZE)
         elif DATASET_TO_USE == 'road':
-            self.dataset = road_dataset.RoadDataset(BATCH_SIZE)
+            self.dataset = road_dataset.RoadDataset(batch_size=BATCH_SIZE)
         elif DATASET_TO_USE == 'mnist':
-            self.dataset = mnist_dataset.MnistDataset(BATCH_SIZE)
+            self.dataset = mnist_dataset.MnistDataset(batch_size=BATCH_SIZE)
         elif DATASET_TO_USE == 'mnist_original':
-            self.dataset = mnist_original_dataset.MnistOriginalDataset(BATCH_SIZE)
+            self.dataset = mnist_original_dataset.MnistOriginalDataset(batch_size=BATCH_SIZE)
         elif DATASET_TO_USE == 'cifar':
-            self.dataset = cifar_dataset.CifarDataset(BATCH_SIZE)
+            self.dataset = cifar_dataset.CifarDataset(batch_size=BATCH_SIZE)
         else:
             print("NIJE ODABRAN DATASET!")
 
@@ -411,16 +501,27 @@ class MT_VGG16:
 
         self.ckptDir = os.path.join(self.checkpoint_dir, self.dataset.name)
         self.ckptPrefix = os.path.join(self.ckptDir, self.name, self.name)
-        ckpt_file = os.path.join(self.ckptDir, 'vgg_16', 'vgg_16.ckpt')
+        vgg_ckpt_file = os.path.join(self.ckptDir, 'vgg_16', 'vgg_16.ckpt')
+        mt_ckpt_file = layers.latest_checkpoint(os.path.join(self.ckptDir, 'mt'))
         # ckpt_file = layers.latest_checkpoint(os.path.join(self.ckptDir, 'vgg_16', 'vgg_16.ckpt'))
         globalVars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
 
-        if ckpt_file is not None and tf.train.checkpoint_exists(ckpt_file):
-            varsInCkpt, varsNotInCkpt = layers.scan_checkpoint_for_vars(ckpt_file, globalVars)
+        if vgg_ckpt_file is not None and tf.train.checkpoint_exists(vgg_ckpt_file):
+            varsInCkpt, varsNotInCkpt = layers.scan_checkpoint_for_vars(vgg_ckpt_file, globalVars)
             if len(varsInCkpt) != 0:
                 restorationSaver = tf.train.Saver(varsInCkpt)
                 self.sess.run(tf.report_uninitialized_variables(var_list=varsInCkpt))
-                restorationSaver.restore(self.sess, ckpt_file)
+                restorationSaver.restore(self.sess, vgg_ckpt_file)
+        else:
+            varsNotInCkpt = globalVars
+
+        if mt_ckpt_file is not None and tf.train.checkpoint_exists(mt_ckpt_file):
+            varsInCkpt, varsNotInCkpt = layers.scan_checkpoint_for_vars(mt_ckpt_file, varsNotInCkpt)
+            varsInCkpt, varsNotInCkpt = layers.replaceVarInListsByName(varsInCkpt, varsNotInCkpt, 'conv2/weights')
+            if len(varsInCkpt) != 0:
+                restorationSaver = tf.train.Saver(varsInCkpt)
+                self.sess.run(tf.report_uninitialized_variables(var_list=varsInCkpt))
+                restorationSaver.restore(self.sess, mt_ckpt_file)
         else:
             varsNotInCkpt = globalVars
 

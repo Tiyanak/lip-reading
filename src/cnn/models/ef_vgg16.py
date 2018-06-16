@@ -35,20 +35,12 @@ class EF_VGG16:
 
         self.global_step = tf.Variable(0, trainable=False)
         self.is_training = tf.placeholder_with_default(True, [], name='is_training')
-        self.dataset_type = tf.placeholder_with_default('train_train', [], name='dataset_type')
+        self.learning_rate = layers.decayLearningRate(LEARNING_RATE, self.global_step, DECAY_STEPS, DECAY_RATE)
 
-        dataset_val = tf.placeholder_with_default('val', [], name='dataset_val')
-        dataset_test = tf.placeholder_with_default('test', [], name='dataset_test')
+        self.X = tf.placeholder(dtype=tf.float32, shape=[None, self.dataset.frames, self.dataset.h, self.dataset.w, self.dataset.c])
+        self.Y = tf.placeholder(dtype=tf.int32, shape=[None])
 
-        if dataset_val.__eq__(self.dataset_type):
-            self.X = tf.cast(self.dataset.valid_images, dtype=tf.float32)
-            self.Yoh = layers.toOneHot(self.dataset.valid_labels, self.dataset.num_classes)
-        elif dataset_test.__eq__(self.dataset_type):
-            self.X = tf.cast(self.dataset.test_images, dtype=tf.float32)
-            self.Yoh = layers.toOneHot(self.dataset.test_labels, self.dataset.num_classes)
-        else:
-            self.X = tf.cast(self.dataset.train_images, dtype=tf.float32)
-            self.Yoh = layers.toOneHot(self.dataset.train_labels, self.dataset.num_classes)
+        self.Yoh = layers.toOneHot(self.Y, self.dataset.num_classes)
 
         net = self.X
 
@@ -59,29 +51,23 @@ class EF_VGG16:
             net = tf.transpose(net, [0, 2, 3, 1, 4])
             net = tf.reshape(net, [-1, net.shape[1], net.shape[2], net.shape[3] * net.shape[4]])
 
-        with tf.device("/job:worker/task:0/gpu:0"):
+        net = self.build_vgg16(net)
 
-            net = self.build_vgg16(net)
+        net = layers.flatten(net, name='flatten')
 
-        with tf.device("/job:worker/task:1/gpu:1"):
+        net = layers.fc(net, 4096, name='fc6', weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
+        net = layers.fc(net, 4096, name='fc7', weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
 
-            net = layers.flatten(net, name='flatten')
+        self.logits= layers.fc(net, self.dataset.num_classes, activation_fn=None, name='fc8',
+                        weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
 
-            net = layers.fc(net, 4096, name='fc6', weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
-            net = layers.fc(net, 4096, name='fc7', weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
-            net = layers.fc(net, self.dataset.num_classes, activation_fn=None, name='fc8',
-                            weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
+        self.preds = layers.softmax(self.logits)
 
-            self.logits = net
-            self.preds = layers.softmax(self.logits)
-
-            cross_entropy_loss = layers.reduce_mean(layers.softmax_cross_entropy(logits=self.logits, labels=self.Yoh))
-            regularization_loss = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
-            self.loss = cross_entropy_loss + REGULARIZER_SCALE * tf.reduce_sum(regularization_loss)
-
-            self.learning_rate = layers.decayLearningRate(LEARNING_RATE, self.global_step, DECAY_STEPS, DECAY_RATE)
-            self.opt = layers.sgd(self.learning_rate)
-            self.train_op = self.opt.minimize(self.loss, global_step=self.global_step)
+        cross_entropy_loss = layers.reduce_mean(layers.softmax_cross_entropy(logits=self.logits, labels=self.Yoh))
+        regularization_loss = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
+        self.loss = cross_entropy_loss + REGULARIZER_SCALE * tf.reduce_sum(regularization_loss)
+        self.opt = layers.adam(self.learning_rate)
+        self.train_op = self.opt.minimize(self.loss, global_step=self.global_step)
 
         self.accuracy, self.precision, self.recall = self.createSummaries(self.Yoh, self.preds, self.loss,
                                                                           self.learning_rate)
@@ -167,10 +153,12 @@ class EF_VGG16:
 
                 start_time = time.time()
 
-                feed_dict = {self.is_training: True, self.dataset_type: 'train'}
+                batch_x, batch_y = self.sess.run([self.dataset.train_images, self.dataset.train_labels])
+
+                feed_dict = {self.is_training: True, self.X: batch_x, self.Y: batch_y}
                 eval_tensors = [self.loss, self.train_op]
                 if (step + 1) * BATCH_SIZE % LOG_EVERY == 0:
-                    eval_tensors += [self.merged_summary_op, self.accuracy, self.precision, self.recall]
+                    eval_tensors += [self.merged_summary_op]
 
                 eval_ret = self.sess.run(eval_tensors, feed_dict=feed_dict)
                 eval_ret = dict(zip(eval_tensors, eval_ret))
@@ -226,12 +214,17 @@ class EF_VGG16:
 
         for step in range(num_batches):
 
-            eval_tensors = [self.Yoh, self.preds, self.loss, self.accuracy, self.precision, self.recall]
+            eval_tensors = [self.Yoh, self.preds, self.loss]
             if (step + 1) * BATCH_SIZE % LOG_EVERY == 0:
                 print("Evaluating {}, done: {}/{}".format(dataset_type, (step + 1) * BATCH_SIZE, num_batches * BATCH_SIZE))
                 eval_tensors += [self.merged_summary_op]
 
-            feed_dict = {self.is_training: False, self.dataset_type: dataset_type}
+            if dataset_type == 'train':
+                batch_x, batch_y = self.sess.run([self.dataset.train_images, self.dataset.train_labels])
+            else:
+                batch_x, batch_y = self.sess.run([self.dataset.valid_images, self.dataset.valid_labels])
+
+            feed_dict = {self.is_training: False, self.X: batch_x, self.Y: batch_y}
 
             eval_ret = self.sess.run(eval_tensors, feed_dict=feed_dict)
             eval_ret = dict(zip(eval_tensors, eval_ret))
@@ -267,12 +260,14 @@ class EF_VGG16:
 
         for step in range(self.dataset.num_batches_test):
 
-            eval_tensors = [self.Yoh, self.preds, self.loss, self.accuracy, self.precision, self.recall]
+            eval_tensors = [self.Yoh, self.preds, self.loss]
             if (step + 1) * BATCH_SIZE % LOG_EVERY == 0:
                 print("Evaluating {}, done: {}/{}".format('test', (step + 1) * BATCH_SIZE, self.dataset.num_test_examples))
                 eval_tensors += [self.merged_summary_op]
 
-            feed_dict = {self.is_training: False, self.dataset_type: 'test'}
+            batch_x, batch_y = self.sess.run([self.dataset.test_images, self.dataset.test_labels])
+
+            feed_dict = {self.is_training: False, self.X: batch_x, self.Y: batch_y}
 
             eval_ret = self.sess.run(eval_tensors, feed_dict=feed_dict)
             eval_ret = dict(zip(eval_tensors, eval_ret))
@@ -298,7 +293,7 @@ class EF_VGG16:
     def initConfig(self):
 
         print("INITIALIZING CONFIGURATION VARIABLES")
-        self.name = 'ef_vgg_16'
+        self.name = 'ef_vgg16'
         self.checkpoint_dir = config.config['checkpoint_root_dir'] # direktorij gdje se nalazi checkpoint
         self.summary_dir = config.config['summary_root_dir']
 
@@ -347,15 +342,15 @@ class EF_VGG16:
 
     def initDataReaders(self):
         if DATASET_TO_USE == 'lrw':
-            self.dataset = lrw_dataset.LrwDataset(BATCH_SIZE)
+            self.dataset = lrw_dataset.LrwDataset(batch_size=BATCH_SIZE)
         elif DATASET_TO_USE == 'road':
-            self.dataset = road_dataset.RoadDataset(BATCH_SIZE)
+            self.dataset = road_dataset.RoadDataset(batch_size=BATCH_SIZE)
         elif DATASET_TO_USE == 'mnist':
-            self.dataset = mnist_dataset.MnistDataset(BATCH_SIZE)
+            self.dataset = mnist_dataset.MnistDataset(batch_size=BATCH_SIZE)
         elif DATASET_TO_USE == 'mnist_original':
-            self.dataset = mnist_original_dataset.MnistOriginalDataset(BATCH_SIZE)
+            self.dataset = mnist_original_dataset.MnistOriginalDataset(batch_size=BATCH_SIZE)
         elif DATASET_TO_USE == 'cifar':
-            self.dataset = cifar_dataset.CifarDataset(BATCH_SIZE)
+            self.dataset = cifar_dataset.CifarDataset(batch_size=BATCH_SIZE)
         else:
             print("NIJE ODABRAN DATASET!")
 
@@ -400,3 +395,4 @@ class EF_VGG16:
 
 model = EF_VGG16()
 model.train()
+# model.test()

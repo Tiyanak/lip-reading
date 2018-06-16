@@ -70,9 +70,18 @@ def scan_checkpoint_for_vars(checkpoint_path, vars_to_check):
     check_var_list = checkpoint_utils.list_variables(checkpoint_path)
     check_var_list = [x[0] for x in check_var_list]
     check_var_set = set(check_var_list)
-    vars_in_checkpoint = [x for x in vars_to_check if x.name[:x.name.index(":")] in check_var_set and 'conv1_1' not in x.name]
-    vars_not_in_checkpoint = [x for x in vars_to_check if x.name[:x.name.index(":")] not in check_var_set or 'conv1_1' in x.name]
+    vars_in_checkpoint = [x for x in vars_to_check if x.name[:x.name.index(":")] in check_var_set]
+    vars_not_in_checkpoint = [x for x in vars_to_check if x.name[:x.name.index(":")] not in check_var_set]
     return vars_in_checkpoint, vars_not_in_checkpoint
+
+def remove_vars(mainVars, varsToRemove):
+    varNamesToRemove = set([x[0] for x in varsToRemove])
+    return [x for x in mainVars if x.name[:x.name.index(":")] not in varNamesToRemove]
+
+def replaceVarInListsByName(listToRemoveFrom, listToPutIn, varName):
+    listToPutIn += [x for x in listToRemoveFrom if varName in x.name]
+    listToRemoveFrom = [x for x in listToRemoveFrom if varName not in x.name]
+    return listToRemoveFrom, listToPutIn
 
 def latest_checkpoint(ckpt_dir, latestFilename=None):
     return tf.train.latest_checkpoint(ckpt_dir, latest_filename=latestFilename)

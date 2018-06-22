@@ -21,13 +21,14 @@ class EF_VGG16:
 
     def __init__(self):
 
-        self.initConfig() # postavi globalne varijable
-        self.createPlotDataVars() # kreiraj mapu za zapisivanje metrike (pdf + csv)
-        self.initDataReaders() # postavi dataset (reader za tfrecordse)
-        self.createModel() # kreiraj duboki model (tensorski graf)
-        self.initSummaries() # kreiraj summari writere
-        self.createSession() # kreiraj session, restoraj i inizijaliziraj varijable
-        self.addGraphToSummaries() # dodaj graf u summarije
+        with tf.device('/device:GPU:0'):
+            self.initConfig() # postavi globalne varijable
+            self.createPlotDataVars() # kreiraj mapu za zapisivanje metrike (pdf + csv)
+            self.initDataReaders() # postavi dataset (reader za tfrecordse)
+            self.createModel() # kreiraj duboki model (tensorski graf)
+            self.initSummaries() # kreiraj summari writere
+            self.createSession() # kreiraj session, restoraj i inizijaliziraj varijable
+            self.addGraphToSummaries() # dodaj graf u summarije
 
     def createModel(self):
 
@@ -78,7 +79,7 @@ class EF_VGG16:
 
     def build_vgg16(self, net, reuse=False):
 
-        with tf.variable_scope('vgg_16'):
+        with tf.variable_scope('vgg_16', reuse=reuse):
 
             bn_params = {'decay': 0.999, 'center': True, 'scale': True, 'epsilon': 0.001, 'updates_collections': None,
                          'is_training': self.is_training}

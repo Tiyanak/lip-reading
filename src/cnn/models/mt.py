@@ -80,7 +80,7 @@ class MT:
 
         net = layers.conv2d(net, filters=512, kernel_size=[3, 3], padding='SAME', stride=1, name='conv5',
                             weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
-        net = layers.max_pool2d(net, [3, 3], 2, padding='VALID', name='max_pool5')
+        net = layers.max_pool2d(net, 3, 2, padding='VALID', name='max_pool5')
         net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se5', filters=512)
 
         net = layers.flatten(net, name='flatten')

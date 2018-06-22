@@ -14,7 +14,7 @@ DECAY_STEPS = 10000 # broj koraka za smanjivanje stope ucenja
 DECAY_RATE = 0.96 # rate smanjivanja stope ucenja
 REGULARIZER_SCALE = 1e-4 # faktor regularizacije
 LEARNING_RATE = 1e-4
-BATCH_SIZE = 10
+BATCH_SIZE = 5
 MAX_EPOCHS = 10
 
 class VGG16:
@@ -47,15 +47,14 @@ class VGG16:
         concated = None
         reuse = None
         for sequence_image in range(self.dataset.frames):
-
             net = self.vgg_loop(self.X[:, sequence_image], reuse)
 
             net_shape = net.get_shape()
             net = tf.reshape(net, [BATCH_SIZE, int(net_shape[1]) * int(net_shape[2]) * int(net_shape[3])])
 
             net = layers.fc(net, 64, name='spatial_FC', reuse=reuse,
-                            normalizer_fn=layers.batchNormalization, normalizer_params=bn_params,
-                            weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
+                            weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
+                            normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
 
             if concated is None:
                 concated = tf.expand_dims(net, axis=1)
@@ -71,19 +70,18 @@ class VGG16:
         layer_num = 1
         for fully_connected_num in [64]:
             net = layers.fc(net, fully_connected_num, name='temporal_FC{}'.format(layer_num),
-                            normalizer_fn=layers.batchNormalization, normalizer_params=bn_params,
-                            weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
+                            weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
+                            normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
             layer_num += 1
 
-        self.logits = layers.fc(net, self.dataset.num_classes, activation_fn=None,
-            weights_regularizer=layers.l2_regularizer(), name='logits')
+        self.logits = layers.fc(net, self.dataset.num_classes, activation_fn=None, name='logits')
 
         self.preds = layers.softmax(self.logits)
 
         cross_entropy_loss = layers.reduce_mean(layers.softmax_cross_entropy(logits=self.logits, labels=self.Yoh))
         regularization_loss = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
         self.loss = cross_entropy_loss + REGULARIZER_SCALE * tf.reduce_sum(regularization_loss)
-        self.opt = layers.sgd(self.learning_rate)
+        self.opt = layers.adam(self.learning_rate)
         self.train_op = self.opt.minimize(self.loss, global_step=self.global_step)
 
         self.accuracy, self.precision, self.recall = self.createSummaries(self.Yoh, self.preds, self.loss,
@@ -94,52 +92,147 @@ class VGG16:
         bn_params = {'decay': 0.999, 'center': True, 'scale': True, 'epsilon': 0.001, 'updates_collections': None,
                      'is_training': self.is_training}
 
+        with tf.variable_scope('conv1', reuse=reuse):
+            net = layers.conv2d(net, 64, name='conv1_1', reuse=reuse,
+                                weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
+                                normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+            net = layers.conv2d(net, 64, name='conv1_2', reuse=reuse,
+                                weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
+                                normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+            net = layers.max_pool2d(net, [2, 2], 2, name='pool1')
+            net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='vgg_se1', filters=64)
+
+        with tf.variable_scope('conv2', reuse=reuse):
+            net = layers.conv2d(net, 128, name='conv2_1', reuse=reuse,
+                                weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
+                                normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+            net = layers.conv2d(net, 128, name='conv2_2', reuse=reuse,
+                                weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
+                                normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+            net = layers.max_pool2d(net, [2, 2], 2, name='pool2')
+            net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='vgg_se2', filters=128)
+
+        with tf.variable_scope('conv3', reuse=reuse):
+            net = layers.conv2d(net, 256, name='conv3_1', reuse=reuse,
+                                weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
+                                normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+            net = layers.conv2d(net, 256, name='conv3_2', reuse=reuse,
+                                weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
+                                normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+            net = layers.conv2d(net, 256, name='conv3_3', reuse=reuse,
+                                weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
+                                normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+            net = layers.max_pool2d(net, [2, 2], 2, name='pool3')
+            net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='vgg_se3', filters=256)
+
+        with tf.variable_scope('conv4', reuse=reuse):
+            net = layers.conv2d(net, 512, name='conv4_1', reuse=reuse,
+                                weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
+                                normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+            net = layers.conv2d(net, 512, name='conv4_2', reuse=reuse,
+                                weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
+                                normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+            net = layers.conv2d(net, 512, name='conv4_3', reuse=reuse,
+                                weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
+                                normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+            net = layers.max_pool2d(net, [2, 2], 2, name='pool4')
+            net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='vgg_se4', filters=512)
+
+        with tf.variable_scope('conv5', reuse=reuse):
+            net = layers.conv2d(net, 512, name='conv5_1', reuse=reuse,
+                                weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
+                                normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+            net = layers.conv2d(net, 512, name='conv5_2', reuse=reuse,
+                                weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
+                                normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+            net = layers.conv2d(net, 512, name='conv5_3', reuse=reuse,
+                                weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
+                                normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+            net = layers.max_pool2d(net, [2, 2], 2, name='pool5')
+            net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='vgg_se5', filters=512)
+
+        return net
+
+    def createModelLowMemory(self):
+
+        print("CREATING MODEL")
+
+        self.global_step = tf.Variable(0, trainable=False)
+        self.is_training = tf.placeholder_with_default(True, [], name='is_training')
+        self.learning_rate = layers.decayLearningRate(LEARNING_RATE, self.global_step, DECAY_STEPS, DECAY_RATE)
+
+        self.X = tf.placeholder(dtype=tf.float32, shape=[None, self.dataset.frames, self.dataset.h, self.dataset.w, self.dataset.c])
+        self.Y = tf.placeholder(dtype=tf.int32, shape=[None])
+
+        self.Yoh = layers.toOneHot(self.Y, self.dataset.num_classes)
+
+        concated = None
+        reuse = None
+        for sequence_image in range(self.dataset.frames):
+            net = self.vgg_loopLowMemory(self.X[:, sequence_image], reuse)
+
+            net_shape = net.get_shape()
+            net = tf.reshape(net, [BATCH_SIZE, int(net_shape[1]) * int(net_shape[2]) * int(net_shape[3])])
+
+            net = layers.fc(net, 64, name='spatial_FC', reuse=reuse)
+
+            if concated is None:
+                concated = tf.expand_dims(net, axis=1)
+            else:
+                concated = tf.concat([concated, tf.expand_dims(net, axis=1)], axis=1)
+
+            reuse = True
+
+        net = concated
+        net_shape = net.get_shape()
+        net = tf.reshape(net, [BATCH_SIZE, int(net_shape[1]) * int(net_shape[2])])
+
+        layer_num = 1
+        for fully_connected_num in [64]:
+            net = layers.fc(net, fully_connected_num, name='temporal_FC{}'.format(layer_num))
+            layer_num += 1
+
+        self.logits = layers.fc(net, self.dataset.num_classes, activation_fn=None, name='logits')
+
+        self.preds = layers.softmax(self.logits)
+
+        self.loss = layers.reduce_mean(layers.softmax_cross_entropy(logits=self.logits, labels=self.Yoh))
+        self.opt = layers.adam(self.learning_rate)
+        self.train_op = self.opt.minimize(self.loss, global_step=self.global_step)
+
+        self.accuracy, self.precision, self.recall = self.createSummaries(self.Yoh, self.preds, self.loss,
+                                                                          self.learning_rate)
+
+    def vgg_loopLowMemory(self, net, reuse=False):
+
         with tf.variable_scope('vgg_16', reuse=reuse):
 
             with tf.variable_scope('conv1', reuse=reuse):
-
-                net = layers.conv2d(net, 64, name='conv1_1', reuse=reuse, weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
-                                    normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
-                net = layers.conv2d(net, 64, name='conv1_2', reuse=reuse, weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
-                                    normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+                net = layers.conv2d(net, 64, name='conv1_1', reuse=reuse)
+                net = layers.conv2d(net, 64, name='conv1_2', reuse=reuse)
                 net = layers.max_pool2d(net, [2, 2], 2, name='pool1')
 
             with tf.variable_scope('conv2', reuse=reuse):
-
-                net = layers.conv2d(net, 128, name='conv2_1', reuse=reuse, weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
-                                    normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
-                net = layers.conv2d(net, 128, name='conv2_2', reuse=reuse, weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
-                                    normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+                net = layers.conv2d(net, 128, name='conv2_1', reuse=reuse)
+                net = layers.conv2d(net, 128, name='conv2_2', reuse=reuse)
                 net = layers.max_pool2d(net, [2, 2], 2, name='pool2')
 
             with tf.variable_scope('conv3', reuse=reuse):
-
-                net = layers.conv2d(net, 256, name='conv3_1', reuse=reuse, weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
-                                    normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
-                net = layers.conv2d(net, 256, name='conv3_2', reuse=reuse, weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
-                                    normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
-                net = layers.conv2d(net, 256, name='conv3_3', reuse=reuse, weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
-                                    normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+                net = layers.conv2d(net, 256, name='conv3_1', reuse=reuse)
+                net = layers.conv2d(net, 256, name='conv3_2', reuse=reuse)
+                net = layers.conv2d(net, 256, name='conv3_3', reuse=reuse)
                 net = layers.max_pool2d(net, [2, 2], 2, name='pool3')
 
             with tf.variable_scope('conv4', reuse=reuse):
-
-                net = layers.conv2d(net, 512, name='conv4_1', reuse=reuse, weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
-                                    normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
-                net = layers.conv2d(net, 512, name='conv4_2', reuse=reuse, weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
-                                    normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
-                net = layers.conv2d(net, 512, name='conv4_3', reuse=reuse, weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
-                                    normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+                net = layers.conv2d(net, 512, name='conv4_1', reuse=reuse)
+                net = layers.conv2d(net, 512, name='conv4_2', reuse=reuse)
+                net = layers.conv2d(net, 512, name='conv4_3', reuse=reuse)
                 net = layers.max_pool2d(net, [2, 2], 2, name='pool4')
 
             with tf.variable_scope('conv5', reuse=reuse):
-
-                net = layers.conv2d(net, 512, name='conv5_1', reuse=reuse, weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
-                                    normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
-                net = layers.conv2d(net, 512, name='conv5_2', reuse=reuse, weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
-                                    normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
-                net = layers.conv2d(net, 512, name='conv5_3', reuse=reuse, weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
-                                    normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
+                net = layers.conv2d(net, 512, name='conv5_1', reuse=reuse)
+                net = layers.conv2d(net, 512, name='conv5_2', reuse=reuse)
+                net = layers.conv2d(net, 512, name='conv5_3', reuse=reuse)
                 net = layers.max_pool2d(net, [2, 2], 2, name='pool5')
 
         return net
@@ -162,7 +255,7 @@ class VGG16:
                 feed_dict = {self.is_training: True, self.X: batch_x, self.Y: batch_y}
                 eval_tensors = [self.loss, self.train_op]
                 if (step + 1) * BATCH_SIZE % LOG_EVERY == 0:
-                    eval_tensors += [self.merged_summary_op, self.accuracy, self.precision, self.recall]
+                    eval_tensors += [self.merged_summary_op]
 
                 eval_ret = self.sess.run(eval_tensors, feed_dict=feed_dict)
                 eval_ret = dict(zip(eval_tensors, eval_ret))
@@ -218,7 +311,7 @@ class VGG16:
 
         for step in range(num_batches):
 
-            eval_tensors = [self.Yoh, self.preds, self.loss, self.accuracy, self.precision, self.recall]
+            eval_tensors = [self.Yoh, self.preds, self.loss]
             if (step + 1) * BATCH_SIZE % LOG_EVERY == 0:
                 print("Evaluating {}, done: {}/{}".format(dataset_type, (step + 1) * BATCH_SIZE, num_batches * BATCH_SIZE))
                 eval_tensors += [self.merged_summary_op]
@@ -264,7 +357,7 @@ class VGG16:
 
         for step in range(self.dataset.num_batches_test):
 
-            eval_tensors = [self.Yoh, self.preds, self.loss, self.accuracy, self.precision, self.recall]
+            eval_tensors = [self.Yoh, self.preds, self.loss]
             if (step + 1) * BATCH_SIZE % LOG_EVERY == 0:
                 print("Evaluating {}, done: {}/{}".format('test', (step + 1) * BATCH_SIZE, self.dataset.num_test_examples))
                 eval_tensors += [self.merged_summary_op]

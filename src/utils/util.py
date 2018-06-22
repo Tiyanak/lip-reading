@@ -95,6 +95,42 @@ def plot_training_progress(data, datasetname, modelname):
 
             f.write(line)
 
+def plot_loss_acc(data, datasetname, modelname):
+
+    fig, ((ax1, ax2)) = plt.subplots(1, 2)
+
+    linewidth = 1
+    legend_size = 5
+    train_color = 'r'
+    val_color = 'c'
+
+    num_points = len(data['train_loss'])
+    x_data = np.linspace(1, num_points, num_points)
+
+    ax1.set_title('Cross-entropy loss')
+    ax1.set_xlabel('Epoch', fontsize=8, ha='right')
+    ax1.set_ylabel('Loss', fontsize=8, rotation=90)
+    ax1.xaxis.set_label_coords(1.05, -0.06)
+    ax1.yaxis.set_label_coords(-0.06, 1.01)
+    ax1.plot(x_data, data['train_loss'], marker='o', color=train_color, linewidth=linewidth, linestyle='-', label='train')
+    ax1.plot(x_data, data['valid_loss'], marker='o', color=val_color, linewidth=linewidth, linestyle='-', label='validation')
+    ax1.legend(loc='upper right', fontsize=legend_size)
+
+    ax2.set_title('Average class accuracy')
+    ax2.set_xlabel('Epoch',  fontsize=8)
+    ax2.set_ylabel('Accuracy', fontsize=8)
+    ax2.xaxis.set_label_coords(1.05, -0.06)
+    ax2.yaxis.set_label_coords(-0.13, 1.03)
+    ax2.plot(x_data, data['train_acc'], marker='o', color=train_color, linewidth=linewidth, linestyle='-', label='train')
+    ax2.plot(x_data, data['valid_acc'], marker='o', color=val_color, linewidth=linewidth, linestyle='-', label='validation')
+    ax2.legend(loc='upper left', fontsize=legend_size)
+
+    result_dir = os.path.join(config.config['results_root_dir'], datasetname, modelname)
+    create_dir(result_dir)
+    pdfFile = os.path.join(result_dir, config.config['filename_pattern'] + config.PDF_EXT)
+    print('Plotting in: ', pdfFile)
+    plt.savefig(pdfFile)
+
 def eval_perf_multi(Y, Y_):
     pr = []
     n = max(Y_) + 1
@@ -182,12 +218,12 @@ def write_test_results(total_loss, acc, pr, rec, prAtTop10, top5CorrectWords, to
 
         f.write('Top 5 CORRECT items\n\n')
         for item in top5CorrectWords:
-            f.write('label={}  correct_counter={} prob_rank={} prob={}\n'.format(item[0], item[1], item[2], 0 if item[2] > 9 else item[4][item[2]]))
+            f.write('\nlabel={}  correct_counter={} prob_rank={} prob={}\n'.format(item[0], item[1], item[2], 0 if item[2] > 9 else item[4][item[2]]))
             f.write(classmap[str(item[0])] + ' -> ' + ' :: '.join(['{} ({}%)'.format(classmap[str(item[3][i])], decimalToPercent(str(item[4][i]))) for i in range(len(item[3]))]) + '\n')
 
         f.write('\nTop 5 INCORRECT items\n\n')
         for item in top5IncorrectWords:
-            f.write('label={}  correct_counter={} prob_rank={} prob={}\n'.format(item[0], item[1], item[2],  0 if item[2] > 9 else item[4][item[2]]))
+            f.write('\nlabel={}  correct_counter={} prob_rank={} prob={}\n'.format(item[0], item[1], item[2],  0 if item[2] > 9 else item[4][item[2]]))
             f.write(classmap[str(item[0])] + ' -> ' + ' :: '.join(['{} ({}%)'.format(classmap[str(item[3][i])], decimalToPercent(str(item[4][i]))) for i in range(len(item[3]))]) + '\n')
 
     f.close()
@@ -228,7 +264,7 @@ def writeClassmapFile(fileapath, labelsToNumsMap):
 def mapTop10ForEveryLabel(labels, preds_onehot):
     top10List = []
     for i in range(len(labels)):
-        top10indices = np.argsort(preds_onehot[i])[::-1][:50]
+        top10indices = np.argsort(preds_onehot[i])[::-1][:10]
         top10List.append((labels[i], top10indices, preds_onehot[i][top10indices]))
 
     return top10List
@@ -242,7 +278,7 @@ def testStatistics(labels, preds_onehot):
     labelsResultsDict = {}
     labelsStat = {}
     allItems = []
-    numOfTopItems = 50 if classNums >= 10 else classNums
+    numOfTopItems = 10 if classNums >= 10 else classNums
 
     for i in range(classNums):
         labelsResultsDict[i] = (0)

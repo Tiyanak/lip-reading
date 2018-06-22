@@ -53,6 +53,10 @@ class EF_VGG16:
 
         net = self.build_vgg16(net)
 
+        if len(net.shape) > 4:
+            net = tf.transpose(net, [0, 2, 3, 1, 4])
+            net = tf.reshape(net, [-1, net.shape[1], net.shape[2], net.shape[3] * net.shape[4]])
+
         net = layers.flatten(net, name='flatten')
 
         net = layers.fc(net, 4096, name='fc6', weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
@@ -81,13 +85,13 @@ class EF_VGG16:
 
             with tf.variable_scope('conv1', reuse=reuse):
                 net = layers.conv2d(net, 64, name='conv1_1', reuse=reuse,
-                                    weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE), biases_initializer=layers.xavier_initializer(),
+                                    weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
                                     normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
                 net = layers.conv2d(net, 64, name='conv1_2', reuse=reuse,
                                     weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
                                     normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
-                net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='vgg_se1', filters=64)
                 net = layers.max_pool2d(net, [2, 2], 2, name='pool1')
+                net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='vgg_se1', filters=64)
 
             with tf.variable_scope('conv2', reuse=reuse):
                 net = layers.conv2d(net, 128, name='conv2_1', reuse=reuse,
@@ -96,8 +100,8 @@ class EF_VGG16:
                 net = layers.conv2d(net, 128, name='conv2_2', reuse=reuse,
                                     weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
                                     normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
-                net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='vgg_se2', filters=128)
                 net = layers.max_pool2d(net, [2, 2], 2, name='pool2')
+                net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='vgg_se2', filters=128)
 
             with tf.variable_scope('conv3', reuse=reuse):
                 net = layers.conv2d(net, 256, name='conv3_1', reuse=reuse,
@@ -109,8 +113,8 @@ class EF_VGG16:
                 net = layers.conv2d(net, 256, name='conv3_3', reuse=reuse,
                                     weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
                                     normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
-                net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='vgg_se3', filters=256)
                 net = layers.max_pool2d(net, [2, 2], 2, name='pool3')
+                net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='vgg_se3', filters=256)
 
             with tf.variable_scope('conv4', reuse=reuse):
                 net = layers.conv2d(net, 512, name='conv4_1', reuse=reuse,
@@ -122,8 +126,8 @@ class EF_VGG16:
                 net = layers.conv2d(net, 512, name='conv4_3', reuse=reuse,
                                     weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
                                     normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
-                net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='vgg_se4', filters=512)
                 net = layers.max_pool2d(net, [2, 2], 2, name='pool4')
+                net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='vgg_se4', filters=512)
 
             with tf.variable_scope('conv5', reuse=reuse):
                 net = layers.conv2d(net, 512, name='conv5_1', reuse=reuse,
@@ -135,8 +139,8 @@ class EF_VGG16:
                 net = layers.conv2d(net, 512, name='conv5_3', reuse=reuse,
                                     weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
                                     normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
-                net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='vgg_se5', filters=512)
                 net = layers.max_pool2d(net, [2, 2], 2, name='pool5')
+                net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='vgg_se5', filters=512)
 
         return net
 
@@ -375,10 +379,9 @@ class EF_VGG16:
 
     def initializeOrRestore(self):
 
-        self.ckptDir = os.path.join(self.checkpoint_dir, self.dataset.name)
-        self.ckptPrefix = os.path.join(self.ckptDir, self.name, self.name)
-        ckpt_file = os.path.join(self.ckptDir, 'vgg_16', 'vgg_16.ckpt')
-        # ckpt_file = layers.latest_checkpoint(os.path.join(self.ckptDir, 'vgg_16', 'vgg_16.ckpt'))
+        self.ckptDir = os.path.join(self.checkpoint_dir, self.dataset.name, self.name)
+        self.ckptPrefix = os.path.join(self.ckptDir, self.name)
+        ckpt_file = layers.latest_checkpoint(self.ckptDir, "checkpoint")
         globalVars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
 
         if ckpt_file is not None and tf.train.checkpoint_exists(ckpt_file):
@@ -395,4 +398,5 @@ class EF_VGG16:
 
 model = EF_VGG16()
 model.train()
+# model.startValidation(1, 20000)
 # model.test()

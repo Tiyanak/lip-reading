@@ -55,14 +55,14 @@ class EF_3():
         net = layers.conv3d(net, filters=48, kernel_size=conv3d_kernel, padding='VALID', stride=2, name='conv1',
                             normalizer_fn=layers.batchNormalization, normalizer_params=bn_params,
                             weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
-        net = layers.squeeze_and_excite3d(net, indexHeight=1, indexWidth=2, indexSeq=3, name='se1', filters=48)
         net = layers.max_pool3d(net, max3d_pool_kernel, 2, padding='VALID', name='max_pool1')
+        net = layers.squeeze_and_excite3d(net, indexHeight=1, indexWidth=2, indexSeq=3, name='se1', filters=48)
 
         net = layers.conv3d(net, filters=256, kernel_size=conv3d_kernel, padding='VALID', stride=2, name='conv2',
                             normalizer_fn=layers.batchNormalization, normalizer_params=bn_params,
                             weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
-        net = layers.squeeze_and_excite3d(net, indexHeight=1, indexWidth=2, indexSeq=3, name='se2', filters=256)
         net = layers.max_pool3d(net, max3d_pool_kernel, 2, padding='VALID', name='max_pool2')
+        net = layers.squeeze_and_excite3d(net, indexHeight=1, indexWidth=2, indexSeq=3, name='se2', filters=256)
 
         net = layers.reshape(net, [-1, net.shape[1], net.shape[2], net.shape[3] * net.shape[4]])
 
@@ -77,8 +77,8 @@ class EF_3():
 
         net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv5',
                             weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
-        net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se5', filters=512)
         net = layers.max_pool2d(net, 3, 1, padding='VALID', name='max_pool5')
+        net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se5', filters=512)
 
         net = layers.flatten(net, name='flatten')
 
@@ -347,5 +347,6 @@ class EF_3():
 
 
 model = EF_3()
-model.train()
-# model.test()
+# model.train()
+# model.startValidation(1, 20000)
+model.test()

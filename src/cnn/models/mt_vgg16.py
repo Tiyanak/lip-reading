@@ -61,8 +61,8 @@ class MT_VGG16:
         net = layers.conv2d(net, 256, kernel_size=3, stride=1, padding='SAME', name='conv2',
                             weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
                             normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
-        net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se2', filters=256)
         net = layers.max_pool2d(net, 3, 1, padding='SAME', name='pool2')
+        net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se2', filters=256)
 
         net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv3',
                             weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
@@ -75,8 +75,8 @@ class MT_VGG16:
 
         net = layers.conv2d(net, filters=512, kernel_size=3, padding='SAME', stride=1, name='conv5',
                             weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE))
-        net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se5', filters=512)
         net = layers.max_pool2d(net, 3, 2, padding='SAME', name='max_pool5')
+        net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='se5', filters=512)
 
         net = layers.flatten(net, name='flatten')
 
@@ -111,13 +111,13 @@ class MT_VGG16:
 
         with tf.variable_scope('conv1', reuse=reuse):
             net = layers.conv2d(net, 64, name='conv1_1', reuse=reuse,
-                                weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE), biases_initializer=layers.xavier_initializer(),
+                                weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
                                 normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
             net = layers.conv2d(net, 64, name='conv1_2', reuse=reuse,
                                 weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
                                 normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
-            net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='vgg_se1', filters=64)
             net = layers.max_pool2d(net, [2, 2], 2, name='pool1')
+            net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='vgg_se1', filters=64)
 
         with tf.variable_scope('conv2', reuse=reuse):
             net = layers.conv2d(net, 128, name='conv2_1', reuse=reuse,
@@ -126,8 +126,8 @@ class MT_VGG16:
             net = layers.conv2d(net, 128, name='conv2_2', reuse=reuse,
                                 weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
                                 normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
-            net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='vgg_se2', filters=128)
             net = layers.max_pool2d(net, [2, 2], 2, name='pool2')
+            net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='vgg_se2', filters=128)
 
         with tf.variable_scope('conv3', reuse=reuse):
             net = layers.conv2d(net, 256, name='conv3_1', reuse=reuse,
@@ -139,8 +139,8 @@ class MT_VGG16:
             net = layers.conv2d(net, 256, name='conv3_3', reuse=reuse,
                                 weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
                                 normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
-            net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='vgg_se3', filters=256)
             net = layers.max_pool2d(net, [2, 2], 2, name='pool3')
+            net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='vgg_se3', filters=256)
 
         with tf.variable_scope('conv4', reuse=reuse):
             net = layers.conv2d(net, 512, name='conv4_1', reuse=reuse,
@@ -152,8 +152,8 @@ class MT_VGG16:
             net = layers.conv2d(net, 512, name='conv4_3', reuse=reuse,
                                 weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
                                 normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
-            net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='vgg_se4', filters=512)
             net = layers.max_pool2d(net, [2, 2], 2, name='pool4')
+            net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='vgg_se4', filters=512)
 
         with tf.variable_scope('conv5', reuse=reuse):
             net = layers.conv2d(net, 512, name='conv5_1', reuse=reuse,
@@ -165,8 +165,8 @@ class MT_VGG16:
             net = layers.conv2d(net, 512, name='conv5_3', reuse=reuse,
                                 weights_regularizer=layers.l2_regularizer(REGULARIZER_SCALE),
                                 normalizer_fn=layers.batchNormalization, normalizer_params=bn_params)
-            net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='vgg_se5', filters=512)
             net = layers.max_pool2d(net, [2, 2], 2, name='pool5')
+            net = layers.squeeze_and_excite2d(net, indexHeight=1, indexWidth=2, name='vgg_se5', filters=512)
 
         return net
 
@@ -230,9 +230,6 @@ class MT_VGG16:
         return net
 
     def build_vgg16_low_memory(self, net, reuse=False):
-
-        bn_params = {'decay': 0.999, 'center': True, 'scale': True, 'epsilon': 0.001, 'updates_collections': None,
-                     'is_training': self.is_training}
 
         with tf.variable_scope('conv1', reuse=reuse):
             net = layers.conv2d(net, 64, name='conv1_1', reuse=reuse)
